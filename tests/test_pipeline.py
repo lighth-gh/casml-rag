@@ -13,7 +13,7 @@ from casml_b0.artifacts import digest, file_hash, load_config, read_json, read_j
 from casml_b0.contracts import load_queries
 from casml_b0.context import pack_context, messages_for
 from casml_b0.exporting import export, references_for
-from casml_b0.generation import generate
+from casml_b0.generation import generate, generate_answer
 from casml_b0.indexing import build_index
 from casml_b0.llm import ExtractiveDemoGenerator
 from casml_b0.prepare import prepare
@@ -122,6 +122,71 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
             f.write("{}\n")
         with self.assertRaisesRegex(ValueError, "checksum"):
             generate(self.cache, self.gen, self.config_path, self.base / "tampered")
+
+    def test_length_retry_recovers_only_cutoff_query_and_exports(self):
+        class CutoffSecond(ExtractiveDemoGenerator):
+            def __init__(self):
+                self.calls = []
+
+            def generate(self, payload, config):
+                self.calls.append((payload["messages"], config["max_new_tokens"]))
+                # First query succeeds; second needs more than 1024 tokens.
+                if len(self.calls) in (2, 3):
+                    return {"answer": "unfinished", "output_tokens": config["max_new_tokens"],
+                            "finish_reason": "length"}
+                return super().generate(payload, config)
+
+        backend = CutoffSecond()
+        cfg = {**self.gen, "max_new_tokens": 512, "retry_max_new_tokens": 2048, "context_window": 4096}
+        before = file_hash(self.cache / "retrieval.jsonl")
+        with patch("casml_b0.generation.make_generator", return_value=backend):
+            generate(self.cache, cfg, self.config_path, self.base / "retry")
+        self.assertEqual([tokens for _, tokens in backend.calls], [512, 512, 1024, 2048, 512])
+        self.assertEqual(backend.calls[1][0], backend.calls[2][0])
+        self.assertEqual(backend.calls[1][0], backend.calls[3][0])
+        self.assertEqual(before, file_hash(self.cache / "retrieval.jsonl"))
+        report = read_json(self.base / "retry/report.json")
+        self.assertEqual(report["retried_for_length"], ["Q002"])
+        self.assertEqual(report["length_limited"], [])
+        export(self.base / "retry", self.data / "queries.json", self.exp, self.base / "retry_export")
+        self.assertEqual(len(csv_rows(self.base / "retry_export/submission.csv")), 3)
+
+    def test_exhausted_length_retry_still_blocks_export(self):
+        class NeverEnds(ExtractiveDemoGenerator):
+            def generate(self, payload, config):
+                return {"answer": "unfinished", "output_tokens": config["max_new_tokens"],
+                        "finish_reason": "length"}
+
+        cfg = {**self.gen, "max_new_tokens": 512, "retry_max_new_tokens": 2048, "context_window": 4096}
+        with patch("casml_b0.generation.make_generator", return_value=NeverEnds()):
+            generate(self.cache, cfg, self.config_path, self.base / "cutoff")
+        predictions = read_jsonl(self.base / "cutoff/predictions.jsonl")
+        self.assertTrue(all(len(p["generation_attempts"]) == 3 for p in predictions))
+        with self.assertRaisesRegex(ValueError, "Length-limited answers"):
+            export(self.base / "cutoff", self.data / "queries.json", self.exp, self.base / "bad_cutoff")
+
+    def test_length_retry_respects_actual_model_context_window(self):
+        class SmallWindow(ExtractiveDemoGenerator):
+            context_window = 1000
+
+            def generate(self, payload, config):
+                self.assert_budget = payload["input_tokens"] + config["max_new_tokens"]
+                if self.assert_budget > self.context_window:
+                    raise AssertionError("model context exceeded")
+                return {"answer": "unfinished", "output_tokens": config["max_new_tokens"],
+                        "finish_reason": "length"}
+
+        result = generate_answer(SmallWindow(), {"input_tokens": 400},
+                                 {"max_new_tokens": 512, "retry_max_new_tokens": 2048, "context_window": 4096})
+        self.assertEqual([a["max_new_tokens"] for a in result["generation_attempts"]], [512, 600])
+        self.assertEqual(result["finish_reason"], "length")
+
+    def test_invalid_retry_budget_fails_before_model_load(self):
+        with patch("casml_b0.generation.make_generator") as factory:
+            with self.assertRaisesRegex(ValueError, "retry_max_new_tokens"):
+                generate(self.cache, {**self.gen, "max_new_tokens": 512, "retry_max_new_tokens": 256},
+                         self.config_path, self.base / "invalid_retry")
+            factory.assert_not_called()
 
     def test_context_budget_preserves_question_and_whole_chunks(self):
         row = read_jsonl(self.cache / "retrieval.jsonl")[0]

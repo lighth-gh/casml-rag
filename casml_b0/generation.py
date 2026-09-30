@@ -21,6 +21,28 @@ def load_prompts(config, config_path):
     return system, user
 
 
+def generate_answer(backend, payload, config):
+    """Retry only length-limited answers, retaining the exact evidence/prompt."""
+    tokens = int(config["max_new_tokens"])
+    ceiling = int(config.get("retry_max_new_tokens", tokens))
+    if ceiling < tokens:
+        raise ValueError("retry_max_new_tokens must be >= max_new_tokens")
+    window = min(int(config["context_window"]), backend.context_window)
+    ceiling = min(ceiling, window - payload["input_tokens"])
+    if tokens > ceiling:
+        raise ValueError("Input + max_new_tokens exceeds context_window")
+    attempts = []
+    while True:
+        answer = backend.generate(payload, {**config, "max_new_tokens": tokens})
+        attempts.append({"max_new_tokens": tokens, "output_tokens": answer["output_tokens"],
+                         "finish_reason": answer["finish_reason"]})
+        if answer["finish_reason"] != "length" or tokens >= ceiling:
+            return {**answer, "generation_attempts": attempts, "max_new_tokens_used": tokens}
+        next_tokens = min(tokens * 2, ceiling)
+        print(f"Answer reached {tokens} tokens; retrying with {next_tokens} tokens.", flush=True)
+        tokens = next_tokens
+
+
 def generate(retrieval_dir, config, config_path, out, limit=None):
     retrieval_dir, out = Path(retrieval_dir), Path(out)
     parent = load_artifact(retrieval_dir, "retrieval")
@@ -33,6 +55,8 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
     if int(config["context_top_k"]) > int(parent["signature"]["config"].get("top_k", 20)):
         raise ValueError("context_top_k exceeds the retrieval cache's top_k. Build a larger cache first.")
     system, user = load_prompts(config, config_path)
+    if int(config.get("retry_max_new_tokens", config["max_new_tokens"])) < int(config["max_new_tokens"]):
+        raise ValueError("retry_max_new_tokens must be >= max_new_tokens")
     effective = {**config, "system_prompt_content": system, "user_prompt_content": user}
     sig = signature("generation", effective, {"retrieval_id": parent["artifact_id"], "selected_queries": digest(rows)},
                     ["generation.py", "context.py", "llm.py"])
@@ -66,7 +90,7 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
             payload = pack_context(row, backend, config, system, user)
             result.update(payload)
             if payload["evidence"]:
-                result.update(backend.generate(payload, config))
+                result.update(generate_answer(backend, payload, config))
                 if not result["answer"].strip():
                     raise ValueError("Model produced an empty answer")
                 result["status"] = "ok"
@@ -79,7 +103,8 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
         result["record_sha256"] = digest(result)
         write_json(checkpoint_dir / f"{digest(row['query_id'])}.json", result)
         results[row["query_id"]] = result
-        print(f"[{len(results)}/{len(rows)}] {row['query_id']}: {result['status']}", flush=True)
+        outcome = "length_limited" if result.get("finish_reason") == "length" else result["status"]
+        print(f"[{len(results)}/{len(rows)}] {row['query_id']}: {outcome}", flush=True)
         if result["status"] == "error" and config.get("fail_fast", True):
             write_jsonl(out / "predictions.jsonl", [results[q["query_id"]] for q in rows if q["query_id"] in results])
             raise RuntimeError(f"Query {row['query_id']} failed: {result['error']}. Checkpoint saved; rerun to resume.")
@@ -88,6 +113,7 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
     report = {"query_count": len(rows), "generated_this_call": len(pending), "resumed": resumed,
               "errors": [r["query_id"] for r in ordered if r["status"] == "error"],
               "length_limited": [r["query_id"] for r in ordered if r.get("finish_reason") == "length"],
+              "retried_for_length": [r["query_id"] for r in ordered if len(r.get("generation_attempts", [])) > 1],
               "total_generation_seconds": sum(r["seconds"] for r in ordered), "environment": environment(),
               "note": "Evidence records identify context supplied to the model, not verified factual support for every answer claim."}
     write_json(out / "report.json", report)

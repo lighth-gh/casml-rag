@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from scripts.build_notebooks import paths
+from scripts.build_notebooks import GENERATION_SETUP, paths
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -62,7 +62,26 @@ class NotebookInputDiscovery(unittest.TestCase):
         source = "\n".join("".join(cell["source"]) for cell in notebook["cells"])
         self.assertIn("GEN_MAX_NEW_TOKENS = 512", source)
         self.assertIn('generation_config["max_new_tokens"] = GEN_MAX_NEW_TOKENS', source)
-        self.assertIn('RUN_NAME = f"b0_g01_t{GEN_MAX_NEW_TOKENS}"', source)
+        self.assertIn('GEN_RETRY_MAX_NEW_TOKENS = 2048', source)
+
+    def test_runtime_config_enables_retry_and_uses_new_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            namespace = self.run_paths(Path(directory) / "missing")
+            namespace.update(ROOT=ROOT, BASE_GEN_CONFIG=ROOT / "configs/generate.yaml")
+            exec(GENERATION_SETUP, namespace)
+            config = yaml.safe_load(namespace["GEN_CONFIG"].read_text(encoding="utf-8"))
+            self.assertEqual(config["max_new_tokens"], 512)
+            self.assertEqual(config["retry_max_new_tokens"], 2048)
+            self.assertEqual(namespace["RUN"].name, "b0_g02_t512_r2048")
+            self.assertTrue(Path(config["system_prompt_file"]).is_file())
+
+    def test_stale_clone_is_rejected_before_generation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "casml_b0").mkdir()
+            (root / "casml_b0/generation.py").write_text("# old generation code")
+            with self.assertRaisesRegex(RuntimeError, "ROOT_OVERRIDE"):
+                exec(GENERATION_SETUP, {"ROOT": root})
 
 
 if __name__ == "__main__":

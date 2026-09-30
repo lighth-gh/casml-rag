@@ -9,6 +9,8 @@ context_top_k: 6
 context_token_budget: 2300
 context_window: 4096
 max_new_tokens: 512
+# Retry only cut-off answers; capped by remaining context-window space.
+retry_max_new_tokens: 2048
 duplicate_overlap: 0.75
 do_sample: false
 repetition_penalty: 1.0
