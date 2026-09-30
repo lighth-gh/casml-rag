@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "casml-b0"
+version = "0.1.0"
+description = "A modular, artifact-based CASML dense RAG baseline"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26,<3", "PyMuPDF>=1.24,<2", "PyYAML>=6,<7"]
+
+[project.optional-dependencies]
+ml = ["torch>=2.6,<3", "transformers==4.51.3", "sentence-transformers==4.1.0", "faiss-cpu>=1.9,<2"]
+
+[project.scripts]
+casml-b0 = "casml_b0.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["casml_b0*"]

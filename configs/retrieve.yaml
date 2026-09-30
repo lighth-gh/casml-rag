@@ -1,0 +1,2 @@
+# Cache more candidates than generation consumes, so context experiments reuse it.
+top_k: 20

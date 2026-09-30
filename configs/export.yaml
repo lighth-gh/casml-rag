@@ -1,0 +1,6 @@
+# Confirm these two settings against the OFFICIAL sample before submitting.
+# pdf = physical PDF page, starting at 1. printed = mapped book page label.
+page_mode: pdf
+page_value_type: string
+fail_on_truncation: true
+allow_demo: false

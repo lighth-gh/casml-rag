@@ -1,0 +1,13 @@
+{
+  "rows": 3,
+  "page_mode": "pdf",
+  "generator_backend": "huggingface",
+  "retrieval_backend": "sentence_transformers",
+  "source_pdf_sha256": "07aa4b9b5594455fcf0f3069c936d2e83ec08a8788467d96649002d647ea0f41",
+  "generation_id": "428eb7b690b80177e7440ce249981967019a391e17448ff40dd156e37832823b",
+  "length_limited_queries": [],
+  "approximate_section_evidence": 0,
+  "unknown_section_evidence": 3,
+  "official_metric_verified": false,
+  "note": "Verify official sample format and page numbering before competition submission."
+}

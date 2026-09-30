@@ -1,0 +1,36 @@
+{
+  "schema": "casml-b0/v1",
+  "stage": "export",
+  "artifact_id": "3bbc1d25f5e16e25fe0c655d5c6088351b80f5f85c6a3c4081fff7a3e0d5a07b",
+  "signature": {
+    "schema": "casml-b0/v1",
+    "stage": "export",
+    "config": {
+      "page_mode": "pdf",
+      "page_value_type": "string",
+      "fail_on_truncation": true,
+      "allow_demo": false
+    },
+    "inputs": {
+      "generation_id": "428eb7b690b80177e7440ce249981967019a391e17448ff40dd156e37832823b",
+      "queries": "1a3baa53c748e7117209b56d33c527aa261fdc109d0623dc44fb54494000beec",
+      "sample": "ed672f714b247f5aeeec61550012a66a28d18cc4406b2b9d9e06e7aad39e9044",
+      "with_pdf": true
+    },
+    "code": {
+      "artifacts.py": "e29713254cd9256ef9deb61586fe8c63e14b5c8513dc94c073c58e4e0c78d089",
+      "context.py": "e4901059431f8c257ed338dda8d66677b0a891c6b6fcd76bdf174b4134c8f057",
+      "contracts.py": "aa14a79ac61152108d865c61d691656f9c312db9600d7465e0691718c9e3a702",
+      "exporting.py": "82c206134b8da270cb7bb80c7399f099f9768b3c63290cb7bd0639d3783159e7"
+    }
+  },
+  "created_utc": "2026-09-30T11:08:05.792622+00:00",
+  "complete": true,
+  "files": {
+    "submission.csv": "a9aae3a33943e20a8b0a17e691f5a37fe45f72478873bdfe7a6b3c2a0d6e2d44",
+    "validation.json": "99bc45d2871a09ca2422689db35b99c8c2730e48384fdc8e0c76af27c5aac587",
+    "audit.html": "153ba05870b95e99c078735592a988ec663bceb49cd3019d51eb8f6ca5587602",
+    "book.pdf": "07aa4b9b5594455fcf0f3069c936d2e83ec08a8788467d96649002d647ea0f41"
+  },
+  "row_count": 3
+}

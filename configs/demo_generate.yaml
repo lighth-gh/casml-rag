@@ -1,0 +1,10 @@
+# No model downloads. Extracts a source sentence, NOT an LLM.
+backend: extractive_demo
+context_top_k: 2
+context_token_budget: 120
+context_window: 2048
+max_new_tokens: 100
+duplicate_overlap: 0.75
+fail_fast: true
+system_prompt_file: ../prompts/system.txt
+user_prompt_file: ../prompts/user.txt

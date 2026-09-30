@@ -1,0 +1,4 @@
+page_mode: printed
+page_value_type: string
+fail_on_truncation: true
+allow_demo: true

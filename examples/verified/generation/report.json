@@ -1,0 +1,20 @@
+{
+  "query_count": 3,
+  "generated_this_call": 3,
+  "resumed": 0,
+  "errors": [],
+  "length_limited": [],
+  "total_generation_seconds": 12.0357,
+  "environment": {
+    "python": "3.12.14",
+    "packages": {
+      "numpy": "2.5.3",
+      "PyMuPDF": "1.26.6",
+      "transformers": "4.51.3",
+      "torch": "2.6.0+cpu",
+      "sentence-transformers": "4.1.0",
+      "faiss-cpu": "1.15.1"
+    }
+  },
+  "note": "Evidence records identify context supplied to the model, not verified factual support for every answer claim."
+}

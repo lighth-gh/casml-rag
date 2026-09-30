@@ -1,0 +1,17 @@
+backend: huggingface
+model_name: Qwen/Qwen2.5-0.5B-Instruct
+revision: 7ae557604adf67be50417f59c2c2f167def9a775
+local_files_only: false
+device: auto
+dtype: auto
+seed: 42
+context_top_k: 6
+context_token_budget: 2300
+context_window: 4096
+max_new_tokens: 256
+duplicate_overlap: 0.75
+do_sample: false
+repetition_penalty: 1.0
+fail_fast: true
+system_prompt_file: ../prompts/system.txt
+user_prompt_file: ../prompts/user.txt

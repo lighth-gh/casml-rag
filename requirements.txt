@@ -1,0 +1,7 @@
+numpy>=1.26,<3
+PyMuPDF>=1.24,<2
+PyYAML>=6,<7
+torch>=2.6,<3
+transformers==4.51.3
+sentence-transformers==4.1.0
+faiss-cpu>=1.9,<2

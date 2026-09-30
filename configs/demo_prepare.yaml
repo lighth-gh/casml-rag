@@ -1,0 +1,4 @@
+# Plumbing demonstration only: regex words are NOT the real embedding tokenizer.
+tokenizer_backend: regex_demo
+chunk_tokens: 45
+chunk_overlap: 8

@@ -1,0 +1,7 @@
+Question:
+{question}
+
+Textbook excerpts:
+{context}
+
+Answer the question using these excerpts:

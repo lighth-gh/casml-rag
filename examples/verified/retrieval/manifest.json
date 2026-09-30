@@ -1,0 +1,32 @@
+{
+  "schema": "casml-b0/v1",
+  "stage": "retrieval",
+  "artifact_id": "caaf3e2db62b0f8f3c5eadcd4fc23085e7cd64ac0b0bc3c2d748953fecea96b2",
+  "signature": {
+    "schema": "casml-b0/v1",
+    "stage": "retrieval",
+    "config": {
+      "top_k": 20
+    },
+    "inputs": {
+      "index_id": "22145ffb783fe24cb731c37c31cb122f6360fb655a54f9a318bdb4b4f5f13c88",
+      "queries": "1a3baa53c748e7117209b56d33c527aa261fdc109d0623dc44fb54494000beec"
+    },
+    "code": {
+      "artifacts.py": "e29713254cd9256ef9deb61586fe8c63e14b5c8513dc94c073c58e4e0c78d089",
+      "contracts.py": "aa14a79ac61152108d865c61d691656f9c312db9600d7465e0691718c9e3a702",
+      "embedding.py": "4f5d5ea4d369463d10d6ed2df2a5873dc6938405fa350f9106a5423bed53e335",
+      "retrieval.py": "43e201c934f8677851e5a5bf1aba32fb71e69a6d11f46a4ffeb8bafa8e073602"
+    }
+  },
+  "created_utc": "2026-09-30T11:07:38.419046+00:00",
+  "complete": true,
+  "files": {
+    "retrieval.jsonl": "d7fbcccd27ea7c25f14f80b9c67dd7bb58ba03982b18d835c9baab2bbd4e89f6"
+  },
+  "query_count": 3,
+  "candidate_count": 4,
+  "doc_id": "07aa4b9b5594455fcf0f3069c936d2e83ec08a8788467d96649002d647ea0f41",
+  "source_pdf": "demo_book.pdf",
+  "backend": "sentence_transformers"
+}

@@ -1,0 +1,33 @@
+{
+  "baseline": "BGE-small + FAISS + Qwen2.5-0.5B-Instruct",
+  "test_data": "original synthetic 4-page PDF, 3 queries; not CASML corpus",
+  "device": "cpu",
+  "environment": {
+    "python": "3.12.14",
+    "packages": {
+      "numpy": "2.5.3",
+      "PyMuPDF": "1.26.6",
+      "transformers": "4.51.3",
+      "torch": "2.6.0+cpu",
+      "sentence-transformers": "4.1.0",
+      "faiss-cpu": "1.15.1"
+    }
+  },
+  "contract_tests": {
+    "passed": 12,
+    "failed": 0
+  },
+  "notebooks_schema_and_syntax_valid": 6,
+  "full_kaggle_execution_verified": false,
+  "official_metric_verified": false,
+  "quality_note": "Q003 answer is incomplete despite relevant context; intentionally retained as B0 result.",
+  "stage_seconds": {
+    "prepare": 6.8,
+    "index": 7.44,
+    "retrieve": 6.93,
+    "generate": 20.34,
+    "export": 0.3
+  },
+  "retrieval_artifact_id": "caaf3e2db62b0f8f3c5eadcd4fc23085e7cd64ac0b0bc3c2d748953fecea96b2",
+  "generation_artifact_id": "428eb7b690b80177e7440ce249981967019a391e17448ff40dd156e37832823b"
+}

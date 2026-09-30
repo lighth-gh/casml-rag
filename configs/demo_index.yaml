@@ -1,0 +1,5 @@
+# No model downloads. Hash-based word matching, NOT a semantic dense retriever.
+backend: hash_demo
+demo_dimension: 2048
+include_section_title: true
+engine: numpy

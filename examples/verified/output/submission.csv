@@ -1,0 +1,34 @@
+ID,context,answer,references
+Q001,"[E1] PDF page 2 | Demo chapters/Memory
+Memory Working memory temporarily holds and manipulates information needed for a current task. For example, a learner may keep two numbers in mind while adding them. Long-term memory can retain information for much longer periods. A retrieval cue is a hint that helps someone access stored information. These short paragraphs were written specifically to test source tracing in a software demonstration. 1
+
+[E2] PDF page 3 | Demo chapters/Learning
+Learning Spaced practice distributes study sessions across multiple occasions instead of combining them into one session. In this fictional classroom example, Lina reviews her vocabulary on Monday, Wednesday, and Friday. Retrieval practice means trying to recall information rather than only rereading it. The demo describes study strategies so that different questions retrieve different pages. 2
+
+[E3] PDF page 4 | Demo chapters/Research
+Research A controlled comparison keeps relevant conditions similar while changing the factor being studied. In a fictional plant experiment, researchers compare two light conditions while keeping water and soil the same. The independent variable is the factor deliberately changed. The dependent variable is the measured outcome. This example is invented for testing and is not a passage from the CASML textbook. 3
+
+[E4] PDF page 1 | section unavailable
+CASML B0 - Original Demo Book Synthetic data for a software integration demonstration. This file is NOT the competition book. The cover is PDF page 1. Printed content pages start at 1 on PDF page 2. Use this small document to verify the pipeline and inspect source references.",Working memory temporarily holds and manipulates information needed for a current task.,"{""sections"": [""Demo chapters/Memory"", ""Demo chapters/Learning"", ""Demo chapters/Research""], ""pages"": [""1"", ""2"", ""3"", ""4""]}"
+Q002,"[E1] PDF page 3 | Demo chapters/Learning
+Learning Spaced practice distributes study sessions across multiple occasions instead of combining them into one session. In this fictional classroom example, Lina reviews her vocabulary on Monday, Wednesday, and Friday. Retrieval practice means trying to recall information rather than only rereading it. The demo describes study strategies so that different questions retrieve different pages. 2
+
+[E2] PDF page 2 | Demo chapters/Memory
+Memory Working memory temporarily holds and manipulates information needed for a current task. For example, a learner may keep two numbers in mind while adding them. Long-term memory can retain information for much longer periods. A retrieval cue is a hint that helps someone access stored information. These short paragraphs were written specifically to test source tracing in a software demonstration. 1
+
+[E3] PDF page 1 | section unavailable
+CASML B0 - Original Demo Book Synthetic data for a software integration demonstration. This file is NOT the competition book. The cover is PDF page 1. Printed content pages start at 1 on PDF page 2. Use this small document to verify the pipeline and inspect source references.
+
+[E4] PDF page 4 | Demo chapters/Research
+Research A controlled comparison keeps relevant conditions similar while changing the factor being studied. In a fictional plant experiment, researchers compare two light conditions while keeping water and soil the same. The independent variable is the factor deliberately changed. The dependent variable is the measured outcome. This example is invented for testing and is not a passage from the CASML textbook. 3",Spaced practice is the distribution of study sessions across multiple occasions instead of combining them into one session.,"{""sections"": [""Demo chapters/Memory"", ""Demo chapters/Learning"", ""Demo chapters/Research""], ""pages"": [""1"", ""2"", ""3"", ""4""]}"
+Q003,"[E1] PDF page 4 | Demo chapters/Research
+Research A controlled comparison keeps relevant conditions similar while changing the factor being studied. In a fictional plant experiment, researchers compare two light conditions while keeping water and soil the same. The independent variable is the factor deliberately changed. The dependent variable is the measured outcome. This example is invented for testing and is not a passage from the CASML textbook. 3
+
+[E2] PDF page 1 | section unavailable
+CASML B0 - Original Demo Book Synthetic data for a software integration demonstration. This file is NOT the competition book. The cover is PDF page 1. Printed content pages start at 1 on PDF page 2. Use this small document to verify the pipeline and inspect source references.
+
+[E3] PDF page 3 | Demo chapters/Learning
+Learning Spaced practice distributes study sessions across multiple occasions instead of combining them into one session. In this fictional classroom example, Lina reviews her vocabulary on Monday, Wednesday, and Friday. Retrieval practice means trying to recall information rather than only rereading it. The demo describes study strategies so that different questions retrieve different pages. 2
+
+[E4] PDF page 2 | Demo chapters/Memory
+Memory Working memory temporarily holds and manipulates information needed for a current task. For example, a learner may keep two numbers in mind while adding them. Long-term memory can retain information for much longer periods. A retrieval cue is a hint that helps someone access stored information. These short paragraphs were written specifically to test source tracing in a software demonstration. 1",independent variable,"{""sections"": [""Demo chapters/Memory"", ""Demo chapters/Learning"", ""Demo chapters/Research""], ""pages"": [""1"", ""2"", ""3"", ""4""]}"
