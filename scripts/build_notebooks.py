@@ -15,33 +15,49 @@ def code(text):
 
 
 SETUP = '''from pathlib import Path
-import shutil, subprocess, sys
+import subprocess, sys
 
-# Đặt đường dẫn thư mục có pyproject.toml nếu có nhiều bản project.
-ROOT_OVERRIDE = None
+# Notebook tự clone mã nguồn khi chưa có project. Bật Internet trên Kaggle.
+REPO_URL = "https://github.com/lighth-gh/casml-rag.git"
+REPO_REF = "main"
+ROOT_OVERRIDE = None  # Hoặc đường dẫn tới một bản project đã có.
+UPDATE_REPO = False   # Đổi thành True để git pull --ff-only khi chạy lại cell.
+
+def is_project(path):
+    return (path / "pyproject.toml").is_file() and (path / "casml_b0/cli.py").is_file()
 
 if ROOT_OVERRIDE:
-    source = Path(ROOT_OVERRIDE).resolve()
+    ROOT = Path(ROOT_OVERRIDE).expanduser().resolve()
 else:
     local = [Path.cwd(), *Path.cwd().parents]
-    candidates = [p for p in local if (p / "casml_b0/cli.py").is_file()]
-    if not candidates and Path("/kaggle/input").exists():
-        candidates = [p.parent for p in Path("/kaggle/input").rglob("pyproject.toml")
-                      if (p.parent / "casml_b0/cli.py").is_file()]
-    candidates = list(dict.fromkeys(p.resolve() for p in candidates))
-    if len(candidates) != 1:
-        raise RuntimeError(f"Tìm thấy {len(candidates)} project; hãy đặt ROOT_OVERRIDE đúng thư mục đã giải nén.")
-    source = candidates[0]
-if not (source / "casml_b0/cli.py").is_file():
-    raise FileNotFoundError("ROOT_OVERRIDE chưa trỏ tới thư mục project")
+    candidates = list(dict.fromkeys(p.resolve() for p in local if is_project(p)))
+    if len(candidates) > 1:
+        raise RuntimeError(f"Tìm thấy nhiều project: {candidates}. Hãy đặt ROOT_OVERRIDE.")
+    if candidates:
+        ROOT = candidates[0]
+    else:
+        base = Path("/kaggle/working") if Path("/kaggle/working").exists() else Path.cwd()
+        ROOT = (base / "casml-rag").resolve()
+        if ROOT.exists() and not is_project(ROOT):
+            raise RuntimeError(f"{ROOT} đã tồn tại nhưng không phải project CASML; hãy đổi ROOT_OVERRIDE hoặc tên thư mục.")
+        if not ROOT.exists():
+            subprocess.run(
+                ["git", "clone", "--depth", "1", "--branch", REPO_REF, REPO_URL, str(ROOT)],
+                check=True,
+            )
+
+if not is_project(ROOT):
+    raise FileNotFoundError(f"Không tìm thấy project CASML tại {ROOT}")
+if UPDATE_REPO:
+    if not (ROOT / ".git").is_dir():
+        raise RuntimeError("UPDATE_REPO chỉ dùng được với thư mục được git clone.")
+    subprocess.run(["git", "-C", str(ROOT), "pull", "--ff-only", "origin", REPO_REF], check=True)
+
 if Path("/kaggle/working").exists():
-    ROOT = Path("/kaggle/working/casml_b0_starter")
-    if source != ROOT and not ROOT.exists():
-        shutil.copytree(source, ROOT, ignore=shutil.ignore_patterns("__pycache__", "artifacts", "runs", "outputs", ".venv"))
-    # Giữ mã người dùng đã sửa ở Working khi chạy lại cell.
+    # Artifact nằm ngoài repo để git pull không đụng vào kết quả đã chạy.
     WORK = Path("/kaggle/working/casml_b0_work")
 else:
-    ROOT, WORK = source, source
+    WORK = ROOT
 WORK.mkdir(parents=True, exist_ok=True)
 print("Project:", ROOT)
 print("Artifacts:", WORK)
@@ -114,7 +130,7 @@ def save(name, cells):
 def main():
     intro = ('# CASML B0 — PDF → CSV\n\n'
              'BGE-small + FAISS + Qwen2.5-0.5B-Instruct. BM25 và Qwen 1.5B để nâng cấp sau. Đọc README trước khi chạy. '
-             'Bật Internet lần tải model đầu và GPU nếu có. Sửa đường dẫn dữ liệu ở cell cấu hình. '
+             'Bật Internet để clone GitHub và tải model lần đầu; bật GPU nếu có. Sửa đường dẫn dữ liệu ở cell cấu hình. '
              'Notebook không tự nộp submission.\n\n'
              'Mỗi bước chạy process riêng. Đổi generation thì dùng notebook 04 trên cache có sẵn. '
              'Kiểm tra schema chính thức và số trang trước khi nộp.')
