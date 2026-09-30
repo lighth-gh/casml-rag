@@ -22,7 +22,7 @@ def load_prompts(config, config_path):
 
 
 def generate_answer(backend, payload, config):
-    """Retry only length-limited answers, retaining the exact evidence/prompt."""
+    """Retry cutoffs with concise instructions and decoding controls, preserving evidence."""
     tokens = int(config["max_new_tokens"])
     ceiling = int(config.get("retry_max_new_tokens", tokens))
     if ceiling < tokens:
@@ -32,14 +32,48 @@ def generate_answer(backend, payload, config):
     if tokens > ceiling:
         raise ValueError("Input + max_new_tokens exceeds context_window")
     attempts = []
+    active_payload = payload
+    active_config = dict(config)
     while True:
-        answer = backend.generate(payload, {**config, "max_new_tokens": tokens})
+        answer = backend.generate(active_payload, {**active_config, "max_new_tokens": tokens})
         attempts.append({"max_new_tokens": tokens, "output_tokens": answer["output_tokens"],
-                         "finish_reason": answer["finish_reason"]})
-        if answer["finish_reason"] != "length" or tokens >= ceiling:
-            return {**answer, "generation_attempts": attempts, "max_new_tokens_used": tokens}
+                         "finish_reason": answer["finish_reason"],
+                         "input_tokens": active_payload["input_tokens"],
+                         "repetition_penalty": active_config.get("repetition_penalty", 1.0),
+                         "no_repeat_ngram_size": active_config.get("no_repeat_ngram_size", 0),
+                         "answer_head": answer["answer"][:300], "answer_tail": answer["answer"][-300:]})
+        result = {**active_payload, **answer, "generation_attempts": attempts, "max_new_tokens_used": tokens}
+        if answer["finish_reason"] != "length":
+            return result
+        policy_changed = False
+        if len(attempts) == 1:
+            # Merely increasing length replays the same greedy sequence. Change
+            # the retry policy once, and record the actual prompt used below.
+            instruction = str(config.get("retry_instruction", "")).strip()
+            retry_payload = dict(payload)
+            if instruction:
+                messages = [dict(m) for m in payload["messages"]]
+                messages[-1]["content"] += "\n\n" + instruction
+                retry_payload.update(messages=messages, input_tokens=backend.count_messages(messages))
+                policy_changed = True
+            retry_ceiling = min(int(config.get("retry_max_new_tokens", tokens)),
+                                window - retry_payload["input_tokens"])
+            if retry_ceiling < 1:
+                result["retry_skipped"] = "Concise retry prompt leaves no output token budget"
+                return result
+            for key in ("repetition_penalty", "no_repeat_ngram_size"):
+                if "retry_" + key in config:
+                    policy_changed |= active_config.get(key) != config["retry_" + key]
+                    active_config[key] = config["retry_" + key]
+            active_payload = retry_payload
+            ceiling = retry_ceiling
+        if tokens >= ceiling and not policy_changed:
+            return result
         next_tokens = min(tokens * 2, ceiling)
-        print(f"Answer reached {tokens} tokens; retrying with {next_tokens} tokens.", flush=True)
+        print(f"Answer reached {tokens} tokens; retrying with {next_tokens} tokens"
+              f" (repetition_penalty={active_config.get('repetition_penalty', 1.0)}, "
+              f"no_repeat_ngram_size={active_config.get('no_repeat_ngram_size', 0)}, "
+              f"concise_prompt={bool(config.get('retry_instruction'))}).", flush=True)
         tokens = next_tokens
 
 
@@ -114,6 +148,12 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
               "errors": [r["query_id"] for r in ordered if r["status"] == "error"],
               "length_limited": [r["query_id"] for r in ordered if r.get("finish_reason") == "length"],
               "retried_for_length": [r["query_id"] for r in ordered if len(r.get("generation_attempts", [])) > 1],
+              "length_limited_details": [
+                  {"query_id": r["query_id"], "question": r["question"],
+                   "answer_head": r["answer"][:500], "answer_tail": r["answer"][-500:],
+                   "generation_attempts": r.get("generation_attempts", []),
+                   "retry_skipped": r.get("retry_skipped")}
+                  for r in ordered if r.get("finish_reason") == "length"],
               "total_generation_seconds": sum(r["seconds"] for r in ordered), "environment": environment(),
               "note": "Evidence records identify context supplied to the model, not verified factual support for every answer claim."}
     write_json(out / "report.json", report)

@@ -72,14 +72,17 @@ class NotebookInputDiscovery(unittest.TestCase):
             config = yaml.safe_load(namespace["GEN_CONFIG"].read_text(encoding="utf-8"))
             self.assertEqual(config["max_new_tokens"], 512)
             self.assertEqual(config["retry_max_new_tokens"], 2048)
-            self.assertEqual(namespace["RUN"].name, "b0_g02_t512_r2048")
+            self.assertEqual(namespace["RUN"].name, "b0_g03_t512_r2048")
+            self.assertEqual(config["retry_repetition_penalty"], 1.15)
+            self.assertEqual(config["retry_no_repeat_ngram_size"], 8)
+            self.assertIn("180 words", config["retry_instruction"])
             self.assertTrue(Path(config["system_prompt_file"]).is_file())
 
     def test_stale_clone_is_rejected_before_generation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "casml_b0").mkdir()
-            (root / "casml_b0/generation.py").write_text("# old generation code")
+            (root / "casml_b0/generation.py").write_text("# old retry_max_new_tokens code")
             with self.assertRaisesRegex(RuntimeError, "ROOT_OVERRIDE"):
                 exec(GENERATION_SETUP, {"ROOT": root})
 

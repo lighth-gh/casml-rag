@@ -162,8 +162,83 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
             generate(self.cache, cfg, self.config_path, self.base / "cutoff")
         predictions = read_jsonl(self.base / "cutoff/predictions.jsonl")
         self.assertTrue(all(len(p["generation_attempts"]) == 3 for p in predictions))
+        report = read_json(self.base / "cutoff/report.json")
+        detail = report["length_limited_details"][0]
+        self.assertEqual(detail["query_id"], "Q001")
+        self.assertEqual(detail["answer_tail"], "unfinished")
+        self.assertTrue(detail["question"])
         with self.assertRaisesRegex(ValueError, "Length-limited answers"):
             export(self.base / "cutoff", self.data / "queries.json", self.exp, self.base / "bad_cutoff")
+
+    def test_concise_retry_changes_decoding_and_records_actual_prompt(self):
+        class RepeatsUntilPolicyChanges(ExtractiveDemoGenerator):
+            def __init__(self):
+                self.calls = []
+
+            def generate(self, payload, config):
+                self.calls.append((payload, dict(config)))
+                if (config.get("repetition_penalty", 1.0) <= 1.0 or
+                        config.get("no_repeat_ngram_size", 0) == 0 or
+                        "at most 180 words" not in payload["messages"][-1]["content"]):
+                    return {"answer": "Repeated text. " * 100, "output_tokens": config["max_new_tokens"],
+                            "finish_reason": "length"}
+                return super().generate(payload, config)
+
+        production = load_config(ROOT / "configs/generate.yaml")
+        cfg = {**self.gen, **{k: v for k, v in production.items() if k.startswith("retry_")},
+               "max_new_tokens": 512, "context_window": 4096}
+        backend = RepeatsUntilPolicyChanges()
+        with patch("casml_b0.generation.make_generator", return_value=backend):
+            generate(self.cache, cfg, self.config_path, self.base / "concise")
+        predictions = read_jsonl(self.base / "concise/predictions.jsonl")
+        self.assertEqual(len(backend.calls), 6)
+        for n, p in enumerate(predictions):
+            first, retry = backend.calls[2*n][0], backend.calls[2*n + 1][0]
+            self.assertNotIn("180 words", first["messages"][-1]["content"])
+            self.assertEqual(first["evidence"], retry["evidence"])
+            self.assertEqual(first["context"], retry["context"])
+            self.assertIn(p["question"], retry["messages"][-1]["content"])
+            self.assertEqual(p["messages"], retry["messages"])
+            self.assertEqual(p["input_tokens"], backend.count_messages(p["messages"]))
+            self.assertLessEqual(p["input_tokens"] + p["max_new_tokens_used"], cfg["context_window"])
+            self.assertEqual(p["generation_attempts"][1]["no_repeat_ngram_size"], 8)
+        export(self.base / "concise", self.data / "queries.json", self.exp, self.base / "concise_export")
+        self.assertEqual(len(csv_rows(self.base / "concise_export/submission.csv")), 3)
+
+    def test_retry_prompt_budget_is_recounted_at_context_limit(self):
+        class TightWindow(ExtractiveDemoGenerator):
+            context_window = 550
+
+            def count_messages(self, messages):
+                return 60
+
+            def generate(self, payload, config):
+                if payload["input_tokens"] + config["max_new_tokens"] > self.context_window:
+                    raise AssertionError("context exceeded")
+                return {"answer": "unfinished", "output_tokens": config["max_new_tokens"],
+                        "finish_reason": "length"}
+
+        payload = {"input_tokens": 38, "messages": [{"role": "user", "content": "Question"}]}
+        cfg = {"max_new_tokens": 512, "retry_max_new_tokens": 2048, "context_window": 4096,
+               "retry_instruction": "Be concise."}
+        result = generate_answer(TightWindow(), payload, cfg)
+        self.assertEqual([a["max_new_tokens"] for a in result["generation_attempts"]], [512, 490])
+        self.assertEqual(result["input_tokens"], 60)
+        self.assertEqual(payload["messages"][0]["content"], "Question")
+        self.assertEqual(result["finish_reason"], "length")
+
+    def test_retry_prompt_that_cannot_fit_keeps_original_metadata(self):
+        backend = ExtractiveDemoGenerator()
+        payload = {"input_tokens": 38, "messages": [{"role": "user", "content": "Question"}]}
+        cfg = {"max_new_tokens": 512, "retry_max_new_tokens": 2048, "context_window": 550,
+               "retry_instruction": "word " * 600}
+        with patch.object(backend, "generate", return_value={"answer": "unfinished", "output_tokens": 512,
+                                                            "finish_reason": "length"}):
+            result = generate_answer(backend, payload, cfg)
+        self.assertEqual(len(result["generation_attempts"]), 1)
+        self.assertEqual(result["messages"], payload["messages"])
+        self.assertEqual(result["input_tokens"], 38)
+        self.assertIn("no output token budget", result["retry_skipped"])
 
     def test_length_retry_respects_actual_model_context_window(self):
         class SmallWindow(ExtractiveDemoGenerator):

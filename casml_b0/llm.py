@@ -67,7 +67,8 @@ class HFGenerator:
             raise ValueError("Chat-template token count mismatch; refusing implicit truncation")
         kwargs = {"max_new_tokens": int(config["max_new_tokens"]), "do_sample": bool(config.get("do_sample", False)),
                   "pad_token_id": self.tokenizer.pad_token_id,
-                  "repetition_penalty": float(config.get("repetition_penalty", 1.0))}
+                  "repetition_penalty": float(config.get("repetition_penalty", 1.0)),
+                  "no_repeat_ngram_size": int(config.get("no_repeat_ngram_size", 0))}
         if kwargs["do_sample"]:
             kwargs.update(temperature=float(config.get("temperature", 0.7)), top_p=float(config.get("top_p", 0.9)))
         else:

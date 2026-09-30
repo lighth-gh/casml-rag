@@ -104,7 +104,10 @@ def export(run, queries_path, config, out, sample=None, pdf=None):
         csv_rows.append({"ID": p["query_id"], "context": p["context"], "answer": p["answer"],
                          "references": json.dumps(refs, ensure_ascii=False)})
     if truncated and config.get("fail_on_truncation", True):
-        raise ValueError(f"Length-limited answers: {truncated[:10]}. Increase max_new_tokens in a new generation run, reusing retrieval.")
+        raise ValueError(f"Length-limited answers: {truncated[:10]}. Inspect {run / 'report.json'} "
+                         "(length_limited_details) and predictions.jsonl. Use concise retry instructions "
+                         "and repetition controls in a new generation run, reusing retrieval; "
+                         "increasing max_new_tokens alone may repeat the same unfinished answer.")
     if pdf and file_hash(pdf) != parent["doc_id"]:
         raise ValueError("Audit PDF differs from the indexed PDF (SHA256 mismatch)")
     sig = signature("export", config, {"generation_id": parent["artifact_id"], "queries": digest(queries),

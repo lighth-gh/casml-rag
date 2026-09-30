@@ -177,11 +177,11 @@ INDEX = WORK / "artifacts/index_v1"
 RETRIEVAL = WORK / "artifacts/retrieval_v1"
 GEN_MAX_NEW_TOKENS = 512
 GEN_RETRY_MAX_NEW_TOKENS = 2048
-RUN_NAME = f"b0_g02_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}"
+RUN_NAME = f"b0_g03_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}"
 RUN = WORK / "runs" / RUN_NAME
 OUTPUT = WORK / "outputs" / RUN_NAME
 BASE_GEN_CONFIG = ROOT / "configs/generate.yaml"
-GEN_CONFIG = WORK / "configs" / f"generate_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}.yaml"
+GEN_CONFIG = WORK / "configs" / f"generate_g03_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}.yaml"
 # Khi đổi prompt/model/config, dùng RUN và OUTPUT mới.
 '''
 
@@ -202,12 +202,19 @@ def paths(auto_pdf=False, require_pdf=False, auto_queries=False, auto_sample=Fal
 GENERATION_SETUP = '''# Tạo config runtime để notebook vẫn dùng giới hạn mới ngay cả khi repo clone còn config cũ.
 import yaml
 
-if "retry_max_new_tokens" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8"):
-    raise RuntimeError("Mã nguồn đang dùng chưa có retry cho đáp án bị cắt. Cập nhật repo chứa bản sửa "
+if ("retry_instruction" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
+        "no_repeat_ngram_size" not in (ROOT / "casml_b0/llm.py").read_text(encoding="utf-8")):
+    raise RuntimeError("Mã nguồn đang dùng chưa có retry với prompt ngắn và chống lặp. Cập nhật repo chứa bản sửa "
                        "(UPDATE_REPO = True), hoặc đặt ROOT_OVERRIDE tới bản project mới rồi chạy lại setup.")
 generation_config = yaml.safe_load(BASE_GEN_CONFIG.read_text(encoding="utf-8"))
 generation_config["max_new_tokens"] = GEN_MAX_NEW_TOKENS
 generation_config["retry_max_new_tokens"] = GEN_RETRY_MAX_NEW_TOKENS
+generation_config.setdefault("retry_repetition_penalty", 1.15)
+generation_config.setdefault("retry_no_repeat_ngram_size", 8)
+generation_config.setdefault("retry_instruction", "Give a complete, concise answer in at most 180 words. "
+                             "State each relevant fact only once. Do not repeat sentences or continue "
+                             "a list unnecessarily. Finish the answer after addressing the question. "
+                             "Use only the supplied excerpts.")
 for key in ("system_prompt_file", "user_prompt_file"):
     prompt_path = Path(generation_config[key]).expanduser()
     if not prompt_path.is_absolute():
@@ -218,6 +225,8 @@ GEN_CONFIG.write_text(yaml.safe_dump(generation_config, sort_keys=False), encodi
 print("Generation config:", GEN_CONFIG)
 print("max_new_tokens:", generation_config["max_new_tokens"])
 print("retry_max_new_tokens:", generation_config["retry_max_new_tokens"])
+print("retry_repetition_penalty:", generation_config["retry_repetition_penalty"])
+print("retry_no_repeat_ngram_size:", generation_config["retry_no_repeat_ngram_size"])
 print("Run:", RUN)
 '''
 
