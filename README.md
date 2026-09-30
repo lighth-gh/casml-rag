@@ -89,7 +89,7 @@ python -m casml_b0 generate --retrieval /path/to/retrieval_v1 --config configs/g
 | Embedding | BGE-small-en-v1.5, vector chuẩn hóa, tiền tố chỉ cho query |
 | Tìm kiếm | FAISS IndexFlatIP; top 20; chưa hybrid hoặc rerank |
 | Context | Tối đa 6 chunk; 2.300 token theo tokenizer của LLM; bỏ trùng/overlap lớn |
-| LLM | Qwen2.5-0.5B-Instruct, greedy, tối đa 256 token mới |
+| LLM | Qwen2.5-0.5B-Instruct, greedy, tối đa 512 token mới |
 | Token safety | Giới hạn tổng 4.096 token; đếm chat template thật; không âm thầm cắt câu hỏi |
 | References | Lấy từ metadata của những chunk thực sự vào prompt; LLM không tự viết số trang |
 

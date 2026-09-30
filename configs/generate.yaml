@@ -8,7 +8,7 @@ seed: 42
 context_top_k: 6
 context_token_budget: 2300
 context_window: 4096
-max_new_tokens: 256
+max_new_tokens: 512
 duplicate_overlap: 0.75
 do_sample: false
 repetition_penalty: 1.0

@@ -175,9 +175,12 @@ PAGE_MAP = None  # Đặt Path đến page_map_override.csv sau khi kiểm tra s
 CORPUS = WORK / "artifacts/corpus_v1"
 INDEX = WORK / "artifacts/index_v1"
 RETRIEVAL = WORK / "artifacts/retrieval_v1"
-RUN = WORK / "runs/b0_g01"
-OUTPUT = WORK / "outputs/b0_g01"
-GEN_CONFIG = ROOT / "configs/generate.yaml"
+GEN_MAX_NEW_TOKENS = 512
+RUN_NAME = f"b0_g01_t{GEN_MAX_NEW_TOKENS}"
+RUN = WORK / "runs" / RUN_NAME
+OUTPUT = WORK / "outputs" / RUN_NAME
+BASE_GEN_CONFIG = ROOT / "configs/generate.yaml"
+GEN_CONFIG = WORK / "configs" / f"generate_t{GEN_MAX_NEW_TOKENS}.yaml"
 # Khi đổi prompt/model/config, dùng RUN và OUTPUT mới.
 '''
 
@@ -193,6 +196,24 @@ def paths(auto_pdf=False, require_pdf=False, auto_queries=False, auto_sample=Fal
     for marker, value in values.items():
         source = source.replace(marker, repr(value))
     return code(source)
+
+
+GENERATION_SETUP = '''# Tạo config runtime để notebook vẫn dùng giới hạn mới ngay cả khi repo clone còn config cũ.
+import yaml
+
+generation_config = yaml.safe_load(BASE_GEN_CONFIG.read_text(encoding="utf-8"))
+generation_config["max_new_tokens"] = GEN_MAX_NEW_TOKENS
+for key in ("system_prompt_file", "user_prompt_file"):
+    prompt_path = Path(generation_config[key]).expanduser()
+    if not prompt_path.is_absolute():
+        prompt_path = (BASE_GEN_CONFIG.parent / prompt_path).resolve()
+    generation_config[key] = str(prompt_path)
+GEN_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+GEN_CONFIG.write_text(yaml.safe_dump(generation_config, sort_keys=False), encoding="utf-8")
+print("Generation config:", GEN_CONFIG)
+print("max_new_tokens:", generation_config["max_new_tokens"])
+print("Run:", RUN)
+'''
 
 STEPS = {
 1: ('prepare', 'requirements-prepare.txt', '''args = ["prepare", "--pdf", PDF, "--config", ROOT / "configs/prepare.yaml", "--out", CORPUS]
@@ -248,7 +269,7 @@ def main():
              'Mỗi bước chạy process riêng. Đổi generation thì dùng notebook 04 trên cache có sẵn. '
              'Kiểm tra schema chính thức và số trang trước khi nộp.')
     full = [md(intro), code(SETUP), paths(auto_pdf=True, require_pdf=True, auto_queries=True, auto_sample=True),
-            install("requirements.txt")]
+            install("requirements.txt"), code(GENERATION_SETUP)]
     for number, (name, requirements, command) in STEPS.items():
         title = f"## {number}. {name}\n\nĐầu ra có manifest và checksum. Cấu hình mới cần thư mục output mới."
         full += [md(title), code(command)]
@@ -264,8 +285,11 @@ def main():
             4: {},
             5: dict(auto_pdf=True, auto_queries=True, auto_sample=True),
         }[number]
-        save(f"{number:02d}_{name}.ipynb",
-             [md(stage_intro), code(SETUP), paths(**path_options), install(requirements), code(command)])
+        cells = [md(stage_intro), code(SETUP), paths(**path_options), install(requirements)]
+        if number == 4:
+            cells.append(code(GENERATION_SETUP))
+        cells.append(code(command))
+        save(f"{number:02d}_{name}.ipynb", cells)
     save("00_run_b0.ipynb", full)
     print("Created 6 notebooks")
 

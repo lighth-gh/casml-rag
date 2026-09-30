@@ -3,7 +3,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 from scripts.build_notebooks import paths
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class NotebookInputDiscovery(unittest.TestCase):
@@ -49,6 +53,16 @@ class NotebookInputDiscovery(unittest.TestCase):
             self.assertIsNone(result["PDF"])
             self.assertIsNone(result["QUERIES"])
             self.assertIsNone(result["SAMPLE"])
+
+    def test_production_generation_limit_exceeds_observed_cutoff(self):
+        config = yaml.safe_load((ROOT / "configs/generate.yaml").read_text(encoding="utf-8"))
+        self.assertGreaterEqual(config["max_new_tokens"], 512)
+
+        notebook = json.loads((ROOT / "notebooks/00_run_b0.ipynb").read_text(encoding="utf-8"))
+        source = "\n".join("".join(cell["source"]) for cell in notebook["cells"])
+        self.assertIn("GEN_MAX_NEW_TOKENS = 512", source)
+        self.assertIn('generation_config["max_new_tokens"] = GEN_MAX_NEW_TOKENS', source)
+        self.assertIn('RUN_NAME = f"b0_g01_t{GEN_MAX_NEW_TOKENS}"', source)
 
 
 if __name__ == "__main__":
