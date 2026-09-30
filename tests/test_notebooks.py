@@ -2,10 +2,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import ModuleType
+from unittest.mock import Mock, patch
 
 import yaml
 
-from scripts.build_notebooks import GENERATION_SETUP, paths
+from scripts.build_notebooks import GENERATION_SETUP, STEPS, paths
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -72,7 +74,7 @@ class NotebookInputDiscovery(unittest.TestCase):
             config = yaml.safe_load(namespace["GEN_CONFIG"].read_text(encoding="utf-8"))
             self.assertEqual(config["max_new_tokens"], 512)
             self.assertEqual(config["retry_max_new_tokens"], 2048)
-            self.assertEqual(namespace["RUN"].name, "b0_g03_t512_r2048")
+            self.assertEqual(namespace["RUN"].name, "b0_g04_t512_r2048")
             self.assertEqual(config["retry_repetition_penalty"], 1.15)
             self.assertEqual(config["retry_no_repeat_ngram_size"], 8)
             self.assertIn("180 words", config["retry_instruction"])
@@ -85,6 +87,20 @@ class NotebookInputDiscovery(unittest.TestCase):
             (root / "casml_b0/generation.py").write_text("# old retry_max_new_tokens code")
             with self.assertRaisesRegex(RuntimeError, "ROOT_OVERRIDE"):
                 exec(GENERATION_SETUP, {"ROOT": root})
+
+    def test_failed_generation_still_displays_diagnosis_link(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            (run / "diagnosis.json").write_text('{}')
+            display_module = ModuleType("IPython.display")
+            display_module.FileLink = Mock(side_effect=lambda path: path)
+            display_module.display = Mock()
+            namespace = {"stage": Mock(side_effect=RuntimeError("stage failed")), "RUN": run,
+                         "RETRIEVAL": run, "GEN_CONFIG": run / "generate.yaml"}
+            with patch.dict("sys.modules", {"IPython": ModuleType("IPython"), "IPython.display": display_module}):
+                with self.assertRaisesRegex(RuntimeError, "stage failed"):
+                    exec(STEPS[4][2], namespace)
+            display_module.display.assert_called_once_with(str(run / "diagnosis.json"))
 
 
 if __name__ == "__main__":

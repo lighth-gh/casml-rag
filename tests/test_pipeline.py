@@ -58,6 +58,20 @@ class PipelineContracts(unittest.TestCase):
         for row in rows:
             self.assertIsInstance(json.loads(row["references"])["pages"], list)
         self.assertEqual(file_hash(self.data / "demo_book.pdf"), file_hash(self.base / "export/book.pdf"))
+        diagnosis = read_json(self.base / "run/diagnosis.json")
+        manifest = read_json(self.base / "run/manifest.json")
+        self.assertEqual(diagnosis["state"], "completed")
+        self.assertEqual(diagnosis["run_id"], manifest["artifact_id"])
+        self.assertTrue(diagnosis["summary"]["generation_ready_for_export"])
+        self.assertEqual(manifest["files"]["diagnosis.json"], file_hash(self.base / "run/diagnosis.json"))
+        predictions = read_jsonl(self.base / "run/predictions.jsonl")
+        for query, prediction in zip(diagnosis["queries"], predictions):
+            self.assertEqual(query["answer"], prediction["answer"])
+            self.assertEqual(query["evidence"], prediction["evidence"])
+            self.assertEqual(query["messages"], prediction["messages"])
+        checksum = file_hash(self.base / "run/diagnosis.json")
+        generate(self.cache, self.gen, self.config_path, self.base / "run")
+        self.assertEqual(checksum, file_hash(self.base / "run/diagnosis.json"))
 
     def test_generation_without_corpus_index_or_retrieval_imports(self):
         shutil.rmtree(self.corpus)
@@ -110,12 +124,61 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
             with self.assertRaises(RuntimeError):
                 generate(self.cache, self.gen, self.config_path, self.base / "resume")
         first = self.base / f"resume/checkpoints/{digest('Q001')}.json"
+        diagnosis = read_json(self.base / "resume/diagnosis.json")
+        self.assertEqual(diagnosis["state"], "failed")
+        self.assertEqual(diagnosis["summary"]["errors"], ["Q002"])
+        self.assertEqual(diagnosis["summary"]["unfinished"], ["Q003"])
+        self.assertIn("simulated runtime interruption", diagnosis["queries"][1]["traceback"])
         checksum = file_hash(first)
         generate(self.cache, self.gen, self.config_path, self.base / "resume")
         self.assertEqual(checksum, file_hash(first))
         report = read_json(self.base / "resume/report.json")
         self.assertEqual(report["resumed"], 1)
         self.assertEqual(report["generated_this_call"], 2)
+        diagnosis = read_json(self.base / "resume/diagnosis.json")
+        self.assertEqual(diagnosis["state"], "completed")
+        self.assertEqual(diagnosis["summary"]["resumed"], 1)
+        self.assertEqual(diagnosis["summary"]["errors"], [])
+        self.assertIsNone(diagnosis["failure"])
+
+    def test_diagnosis_survives_model_loading_failure(self):
+        with patch("casml_b0.generation.make_generator", side_effect=RuntimeError("model unavailable")):
+            with self.assertRaisesRegex(RuntimeError, "model unavailable"):
+                generate(self.cache, self.gen, self.config_path, self.base / "model_failure")
+        diagnosis = read_json(self.base / "model_failure/diagnosis.json")
+        self.assertEqual(diagnosis["state"], "failed")
+        self.assertEqual(diagnosis["failure"]["type"], "RuntimeError")
+        self.assertIn("model unavailable", diagnosis["failure"]["traceback"])
+        self.assertEqual(diagnosis["summary"]["unfinished"], ["Q001", "Q002", "Q003"])
+        self.assertFalse(diagnosis["summary"]["generation_ready_for_export"])
+
+    def test_diagnosis_preserves_attempts_when_retry_errors_or_is_interrupted(self):
+        for failure in (RuntimeError("retry failed"), KeyboardInterrupt()):
+            with self.subTest(failure=type(failure).__name__):
+                backend = ExtractiveDemoGenerator()
+                run = self.base / type(failure).__name__
+                first = {"answer": "unfinished first answer", "output_tokens": 100, "finish_reason": "length"}
+                with patch.object(backend, "generate", side_effect=[first, failure]), \
+                        patch("casml_b0.generation.make_generator", return_value=backend):
+                    with self.assertRaises(type(failure)):
+                        generate(self.cache, {**self.gen, "retry_max_new_tokens": 200}, self.config_path, run)
+                diagnosis = read_json(run / "diagnosis.json")
+                self.assertEqual(diagnosis["state"], "interrupted" if isinstance(failure, KeyboardInterrupt) else "failed")
+                self.assertEqual(diagnosis["queries"][0]["answer"], first["answer"])
+                self.assertEqual(len(diagnosis["queries"][0]["generation_attempts"]), 1)
+                self.assertEqual(diagnosis["failure"]["type"], type(failure).__name__)
+                self.assertFalse(diagnosis["summary"]["generation_ready_for_export"])
+
+    def test_diagnosis_captures_all_errors_with_fail_fast_disabled(self):
+        backend = ExtractiveDemoGenerator()
+        with patch.object(backend, "generate", side_effect=RuntimeError("generation failed")), \
+                patch("casml_b0.generation.make_generator", return_value=backend):
+            with self.assertRaisesRegex(RuntimeError, "Some queries failed"):
+                generate(self.cache, {**self.gen, "fail_fast": False}, self.config_path, self.base / "all_errors")
+        diagnosis = read_json(self.base / "all_errors/diagnosis.json")
+        self.assertEqual(diagnosis["state"], "failed")
+        self.assertEqual(diagnosis["summary"]["errors"], ["Q001", "Q002", "Q003"])
+        self.assertEqual(diagnosis["summary"]["unfinished"], [])
 
     def test_retrieval_tampering_is_detected_before_generation(self):
         with open(self.cache / "retrieval.jsonl", "a") as f:
@@ -167,6 +230,10 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
         self.assertEqual(detail["query_id"], "Q001")
         self.assertEqual(detail["answer_tail"], "unfinished")
         self.assertTrue(detail["question"])
+        diagnosis = read_json(self.base / "cutoff/diagnosis.json")
+        self.assertEqual(diagnosis["state"], "completed")
+        self.assertEqual(diagnosis["summary"]["length_limited"], ["Q001", "Q002", "Q003"])
+        self.assertFalse(diagnosis["summary"]["generation_ready_for_export"])
         with self.assertRaisesRegex(ValueError, "Length-limited answers"):
             export(self.base / "cutoff", self.data / "queries.json", self.exp, self.base / "bad_cutoff")
 
@@ -294,6 +361,7 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
 
     def test_partial_run_cannot_export_full_submission(self):
         generate(self.cache, self.gen, self.config_path, self.base / "partial", limit=1)
+        self.assertFalse(read_json(self.base / "partial/diagnosis.json")["summary"]["generation_ready_for_export"])
         with self.assertRaisesRegex(ValueError, "ALL input"):
             export(self.base / "partial", self.data / "queries.json", self.exp, self.base / "bad")
 

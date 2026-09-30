@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import time
+import traceback
 from pathlib import Path
 
 from .artifacts import (SCHEMA, begin, digest, environment, finish, load_artifact, read_json,
                         read_jsonl, signature, write_json, write_jsonl)
 from .contracts import validate_retrieval
 from .context import pack_context
+from .diagnosis import write_diagnosis
 from .llm import make_generator
 
 
@@ -21,7 +23,7 @@ def load_prompts(config, config_path):
     return system, user
 
 
-def generate_answer(backend, payload, config):
+def generate_answer(backend, payload, config, on_attempt=None):
     """Retry cutoffs with concise instructions and decoding controls, preserving evidence."""
     tokens = int(config["max_new_tokens"])
     ceiling = int(config.get("retry_max_new_tokens", tokens))
@@ -43,6 +45,8 @@ def generate_answer(backend, payload, config):
                          "no_repeat_ngram_size": active_config.get("no_repeat_ngram_size", 0),
                          "answer_head": answer["answer"][:300], "answer_tail": answer["answer"][-300:]})
         result = {**active_payload, **answer, "generation_attempts": attempts, "max_new_tokens_used": tokens}
+        if on_attempt is not None:
+            on_attempt(result)
         if answer["finish_reason"] != "length":
             return result
         policy_changed = False
@@ -93,73 +97,98 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
         raise ValueError("retry_max_new_tokens must be >= max_new_tokens")
     effective = {**config, "system_prompt_content": system, "user_prompt_content": user}
     sig = signature("generation", effective, {"retrieval_id": parent["artifact_id"], "selected_queries": digest(rows)},
-                    ["generation.py", "context.py", "llm.py"])
+                    ["generation.py", "context.py", "llm.py", "diagnosis.py"])
     manifest, cached = begin(out, sig, resumable=True)
     if cached:
         return manifest
-    checkpoint_dir = out / "checkpoints"
-    checkpoint_dir.mkdir(exist_ok=True)
-    results, pending = {}, []
-    for row in rows:
-        key = digest(row["query_id"])
-        path = checkpoint_dir / f"{key}.json"
-        previous = read_json(path) if path.exists() else None
-        if previous:
-            checksum = previous.pop("record_sha256", None)
-            if checksum != digest(previous) or previous.get("run_id") != manifest["artifact_id"] or previous.get("query_signature") != digest(row):
-                raise ValueError(f"Invalid checkpoint for query {row['query_id']}")
-            previous["record_sha256"] = checksum
-        if previous and previous["status"] in ("ok", "insufficient_context"):
-            results[row["query_id"]] = previous
-        else:
-            pending.append(row)
-    resumed = len(results)
-    backend = make_generator(config) if pending else None
-    for row in pending:
-        started = time.perf_counter()
-        result = {"schema": SCHEMA, "run_id": manifest["artifact_id"], "query_signature": digest(row),
-                  "query_id": row["query_id"], "question": row["question"],
-                  "generator_backend": config.get("backend", "huggingface")}
-        try:
-            payload = pack_context(row, backend, config, system, user)
-            result.update(payload)
-            if payload["evidence"]:
-                result.update(generate_answer(backend, payload, config))
-                if not result["answer"].strip():
-                    raise ValueError("Model produced an empty answer")
-                result["status"] = "ok"
+    results, resumed, backend = {}, 0, None
+    runtime = environment()
+
+    def save_diagnosis(state="running", failure=None):
+        write_diagnosis(out, manifest, rows, results, state=state, runtime=runtime,
+                        resumed=resumed, model_context_window=getattr(backend, "context_window", None),
+                        full_query_count=parent["query_count"], failure=failure)
+
+    save_diagnosis()
+    try:
+        checkpoint_dir = out / "checkpoints"
+        checkpoint_dir.mkdir(exist_ok=True)
+        pending = []
+        for row in rows:
+            key = digest(row["query_id"])
+            path = checkpoint_dir / f"{key}.json"
+            previous = read_json(path) if path.exists() else None
+            if previous:
+                checksum = previous.pop("record_sha256", None)
+                if checksum != digest(previous) or previous.get("run_id") != manifest["artifact_id"] or previous.get("query_signature") != digest(row):
+                    raise ValueError(f"Invalid checkpoint for query {row['query_id']}")
+                previous["record_sha256"] = checksum
+            if previous and previous["status"] in ("ok", "insufficient_context"):
+                results[row["query_id"]] = previous
             else:
-                result.update(status="insufficient_context", answer="The provided excerpts do not contain enough information to answer this question.",
-                              output_tokens=0, finish_reason="no_evidence")
-        except Exception as exc:
-            result.update(status="error", error=f"{type(exc).__name__}: {exc}")
-        result["seconds"] = round(time.perf_counter() - started, 4)
-        result["record_sha256"] = digest(result)
-        write_json(checkpoint_dir / f"{digest(row['query_id'])}.json", result)
-        results[row["query_id"]] = result
-        outcome = "length_limited" if result.get("finish_reason") == "length" else result["status"]
-        print(f"[{len(results)}/{len(rows)}] {row['query_id']}: {outcome}", flush=True)
-        if result["status"] == "error" and config.get("fail_fast", True):
-            write_jsonl(out / "predictions.jsonl", [results[q["query_id"]] for q in rows if q["query_id"] in results])
-            raise RuntimeError(f"Query {row['query_id']} failed: {result['error']}. Checkpoint saved; rerun to resume.")
-    ordered = [results[row["query_id"]] for row in rows]
-    write_jsonl(out / "predictions.jsonl", ordered)
-    report = {"query_count": len(rows), "generated_this_call": len(pending), "resumed": resumed,
-              "errors": [r["query_id"] for r in ordered if r["status"] == "error"],
-              "length_limited": [r["query_id"] for r in ordered if r.get("finish_reason") == "length"],
-              "retried_for_length": [r["query_id"] for r in ordered if len(r.get("generation_attempts", [])) > 1],
-              "length_limited_details": [
-                  {"query_id": r["query_id"], "question": r["question"],
-                   "answer_head": r["answer"][:500], "answer_tail": r["answer"][-500:],
-                   "generation_attempts": r.get("generation_attempts", []),
-                   "retry_skipped": r.get("retry_skipped")}
-                  for r in ordered if r.get("finish_reason") == "length"],
-              "total_generation_seconds": sum(r["seconds"] for r in ordered), "environment": environment(),
-              "note": "Evidence records identify context supplied to the model, not verified factual support for every answer claim."}
-    write_json(out / "report.json", report)
-    if report["errors"]:
-        raise RuntimeError("Some queries failed. Fix the runtime problem and resume before exporting.")
-    files = ["predictions.jsonl", "report.json"] + [f"checkpoints/{digest(r['query_id'])}.json" for r in rows]
-    return finish(out, manifest, files, doc_id=parent["doc_id"], source_pdf=parent["source_pdf"],
-                  retrieval_backend=parent.get("backend"), generator_backend=config.get("backend", "huggingface"),
-                  query_count=len(rows), full_retrieval_query_count=parent["query_count"])
+                pending.append(row)
+        resumed = len(results)
+        backend = make_generator(config) if pending else None
+        save_diagnosis()
+        for row in pending:
+            started = time.perf_counter()
+            result = {"schema": SCHEMA, "run_id": manifest["artifact_id"], "query_signature": digest(row),
+                      "query_id": row["query_id"], "question": row["question"],
+                      "generator_backend": config.get("backend", "huggingface"), "status": "running"}
+            results[row["query_id"]] = result
+            save_diagnosis()
+
+            def record_attempt(attempt):
+                result.update(attempt)
+                save_diagnosis()
+
+            try:
+                payload = pack_context(row, backend, config, system, user)
+                result.update(payload)
+                if payload["evidence"]:
+                    result.update(generate_answer(backend, payload, config, on_attempt=record_attempt))
+                    if not result["answer"].strip():
+                        raise ValueError("Model produced an empty answer")
+                    result["status"] = "ok"
+                else:
+                    result.update(status="insufficient_context", answer="The provided excerpts do not contain enough information to answer this question.",
+                                  output_tokens=0, finish_reason="no_evidence")
+            except Exception as exc:
+                result.update(status="error", error=f"{type(exc).__name__}: {exc}",
+                              traceback=traceback.format_exc())
+            result["seconds"] = round(time.perf_counter() - started, 4)
+            result["record_sha256"] = digest(result)
+            write_json(checkpoint_dir / f"{digest(row['query_id'])}.json", result)
+            results[row["query_id"]] = result
+            save_diagnosis()
+            outcome = "length_limited" if result["status"] == "ok" and result.get("finish_reason") == "length" else result["status"]
+            print(f"[{len(results)}/{len(rows)}] {row['query_id']}: {outcome}", flush=True)
+            if result["status"] == "error" and config.get("fail_fast", True):
+                write_jsonl(out / "predictions.jsonl", [results[q["query_id"]] for q in rows if q["query_id"] in results])
+                raise RuntimeError(f"Query {row['query_id']} failed: {result['error']}. Checkpoint saved; rerun to resume.")
+        ordered = [results[row["query_id"]] for row in rows]
+        write_jsonl(out / "predictions.jsonl", ordered)
+        report = {"query_count": len(rows), "generated_this_call": len(pending), "resumed": resumed,
+                  "errors": [r["query_id"] for r in ordered if r["status"] == "error"],
+                  "length_limited": [r["query_id"] for r in ordered if r.get("finish_reason") == "length"],
+                  "retried_for_length": [r["query_id"] for r in ordered if len(r.get("generation_attempts", [])) > 1],
+                  "length_limited_details": [
+                      {"query_id": r["query_id"], "question": r["question"],
+                       "answer_head": r["answer"][:500], "answer_tail": r["answer"][-500:],
+                       "generation_attempts": r.get("generation_attempts", []),
+                       "retry_skipped": r.get("retry_skipped")}
+                      for r in ordered if r.get("finish_reason") == "length"],
+                  "total_generation_seconds": sum(r["seconds"] for r in ordered), "environment": runtime,
+                  "note": "Evidence records identify context supplied to the model, not verified factual support for every answer claim."}
+        write_json(out / "report.json", report)
+        if report["errors"]:
+            raise RuntimeError("Some queries failed. Fix the runtime problem and resume before exporting.")
+        save_diagnosis("completed")
+        files = ["predictions.jsonl", "report.json", "diagnosis.json"] + [f"checkpoints/{digest(r['query_id'])}.json" for r in rows]
+        return finish(out, manifest, files, doc_id=parent["doc_id"], source_pdf=parent["source_pdf"],
+                      retrieval_backend=parent.get("backend"), generator_backend=config.get("backend", "huggingface"),
+                      query_count=len(rows), full_retrieval_query_count=parent["query_count"])
+    except (Exception, KeyboardInterrupt) as exc:
+        save_diagnosis("interrupted" if isinstance(exc, KeyboardInterrupt) else "failed",
+                       {"type": type(exc).__name__, "message": str(exc), "traceback": traceback.format_exc()})
+        raise

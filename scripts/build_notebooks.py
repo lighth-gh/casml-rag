@@ -177,11 +177,11 @@ INDEX = WORK / "artifacts/index_v1"
 RETRIEVAL = WORK / "artifacts/retrieval_v1"
 GEN_MAX_NEW_TOKENS = 512
 GEN_RETRY_MAX_NEW_TOKENS = 2048
-RUN_NAME = f"b0_g03_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}"
+RUN_NAME = f"b0_g04_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}"
 RUN = WORK / "runs" / RUN_NAME
 OUTPUT = WORK / "outputs" / RUN_NAME
 BASE_GEN_CONFIG = ROOT / "configs/generate.yaml"
-GEN_CONFIG = WORK / "configs" / f"generate_g03_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}.yaml"
+GEN_CONFIG = WORK / "configs" / f"generate_g04_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}.yaml"
 # Khi đổi prompt/model/config, dùng RUN và OUTPUT mới.
 '''
 
@@ -203,8 +203,9 @@ GENERATION_SETUP = '''# Tạo config runtime để notebook vẫn dùng giới h
 import yaml
 
 if ("retry_instruction" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
+        "write_diagnosis" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
         "no_repeat_ngram_size" not in (ROOT / "casml_b0/llm.py").read_text(encoding="utf-8")):
-    raise RuntimeError("Mã nguồn đang dùng chưa có retry với prompt ngắn và chống lặp. Cập nhật repo chứa bản sửa "
+    raise RuntimeError("Mã nguồn đang dùng chưa có diagnosis hoặc retry với prompt ngắn và chống lặp. Cập nhật repo chứa bản sửa "
                        "(UPDATE_REPO = True), hoặc đặt ROOT_OVERRIDE tới bản project mới rồi chạy lại setup.")
 generation_config = yaml.safe_load(BASE_GEN_CONFIG.read_text(encoding="utf-8"))
 generation_config["max_new_tokens"] = GEN_MAX_NEW_TOKENS
@@ -245,7 +246,14 @@ print("Lưu cả thư mục này để thử generation ở session khác:", RET
 4: ('generate', 'requirements-generation.txt', '''# Nếu cache nằm ở Input, sửa RETRIEVAL tại đây, ví dụ:
 # RETRIEVAL = Path("/kaggle/input/your-retrieval-cache/retrieval_v1")
 # Chỉ cần manifest.json + retrieval.jsonl. Không cần PDF/index/embedding.
-stage("generate", "--retrieval", RETRIEVAL, "--config", GEN_CONFIG, "--out", RUN)
+try:
+    stage("generate", "--retrieval", RETRIEVAL, "--config", GEN_CONFIG, "--out", RUN)
+finally:
+    diagnosis_path = RUN / "diagnosis.json"
+    if diagnosis_path.is_file():
+        print("Diagnosis:", diagnosis_path)
+        from IPython.display import FileLink, display
+        display(FileLink(str(diagnosis_path)))
 print((RUN / "report.json").read_text())
 '''),
 5: ('export', 'requirements-export.txt', '''args = ["export", "--run", RUN, "--queries", QUERIES, "--config", ROOT / "configs/export.yaml", "--out", OUTPUT]
