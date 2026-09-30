@@ -116,7 +116,7 @@ Chạy prepare với `--page-map-override data/page_map_override.csv` và một 
 1. Import/upload `notebooks/00_run_b0.ipynb` vào Kaggle; thêm dữ liệu CASML chính thức vào Input.
 2. Bật Internet và GPU nếu có. Cell setup tự clone `https://github.com/lighth-gh/casml-rag.git` vào `/kaggle/working/casml-rag`; Internet cũng cần cho lần tải model đầu.
 3. Khi chạy lại notebook, mã đã clone được dùng lại. Đặt `UPDATE_REPO = True` nếu muốn `git pull --ff-only`, hoặc đặt `ROOT_OVERRIDE` nếu muốn dùng một bản project khác.
-4. Sửa đường dẫn `PDF`, `QUERIES`, `SAMPLE` trong cell cấu hình. Không dùng file overview của contest làm sách.
+4. Cell cấu hình tự dò PDF sách, `queries.json` và `sample_submission.csv` trong `/kaggle/input`. Nếu có nhiều ứng viên, đặt `PDF_OVERRIDE`, `QUERIES_OVERRIDE` hoặc `SAMPLE_OVERRIDE` tới file chính xác. Notebook không tự chọn PDF có tên dạng overview/instructions/rules/guide.
 5. Chạy lần lượt, đọc báo cáo prepare/audit rồi đối chiếu sample và quy ước references chính thức.
 6. Lưu thư mục cache retrieval làm output/dataset riêng. Với thử nghiệm LLM mới, chỉ mở `04_generate.ipynb`, cài dependency generation và trỏ `RETRIEVAL` đến cache đó.
 
