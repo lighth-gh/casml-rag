@@ -7,16 +7,18 @@ from unittest.mock import Mock, patch
 
 import yaml
 
+from casml_b0.generation import load_prompts
 from scripts.build_notebooks import GENERATION_SETUP, STEPS, paths
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class NotebookInputDiscovery(unittest.TestCase):
-    def run_paths(self, data, **options):
+    def run_paths(self, data, experiment="baseline", **options):
         source = "".join(paths(**options)["source"])
         source = source.replace("INPUT_ROOT_OVERRIDE = None", f"INPUT_ROOT_OVERRIDE = {str(data)!r}")
-        namespace = {"ROOT": Path(data).parent, "WORK": Path(data).parent / "work"}
+        source = source.replace('EXPERIMENT = "baseline"', f"EXPERIMENT = {experiment!r}")
+        namespace = {"ROOT": ROOT, "WORK": Path(data).parent / "work"}
         exec(source, namespace)
         return namespace
 
@@ -94,7 +96,7 @@ class NotebookInputDiscovery(unittest.TestCase):
         notebooks = sorted(path.name for path in (ROOT / "notebooks").glob("*.ipynb"))
         self.assertEqual(notebooks, ["CASML_R1_end_to_end.ipynb"])
 
-    def test_runtime_config_enables_retry_and_uses_new_run(self):
+    def test_runtime_config_reports_grounding_and_uses_new_run(self):
         with tempfile.TemporaryDirectory() as directory:
             namespace = self.run_paths(Path(directory) / "missing")
             namespace.update(ROOT=ROOT, BASE_GEN_CONFIG=ROOT / "configs/generate.yaml",
@@ -104,23 +106,63 @@ class NotebookInputDiscovery(unittest.TestCase):
             config = yaml.safe_load(namespace["GEN_CONFIG"].read_text(encoding="utf-8"))
             self.assertEqual(config["max_new_tokens"], 384)
             self.assertEqual(config["retry_max_new_tokens"], 384)
-            self.assertEqual(namespace["RUN"].name, "hybrid_r3_qwen15b_t384_grounded_v2")
+            self.assertEqual(namespace["RUN"].name, "hybrid_r4_baseline_qwen15b_t384_report_only")
             self.assertEqual(config["retry_repetition_penalty"], 1.15)
             self.assertEqual(config["retry_no_repeat_ngram_size"], 8)
             self.assertEqual(config["eos_token_ids"], [151645, 151643])
             self.assertEqual(config["abort_after_consecutive_length_limited"], 1)
-            self.assertIn("140 words", config["retry_instruction"])
-            self.assertTrue(config["grounding_validator_enabled"])
-            self.assertEqual(config["grounding_validator_max_retries"], 1)
+            self.assertIn("180 words", config["retry_instruction"])
+            self.assertFalse(config["grounding_validator_enabled"])
+            self.assertTrue(config["grounding_report_enabled"])
+            self.assertEqual(config["grounding_validator_max_retries"], 0)
             self.assertEqual(config["grounding_retry_max_new_tokens"], 224)
-            self.assertTrue(config["grounding_deterministic_repair"])
+            self.assertFalse(config["grounding_deterministic_repair"])
             self.assertEqual(config["model_name"], "Qwen/Qwen2.5-1.5B-Instruct")
             self.assertTrue(Path(config["system_prompt_file"]).is_file())
             export_config = yaml.safe_load(namespace["EXPORT_CONFIG"].read_text(encoding="utf-8"))
             self.assertNotIn("require_sample", export_config)
             self.assertEqual(export_config["page_value_type"], "integer")
-            self.assertTrue(export_config["fail_on_unsupported_claims"])
+            self.assertFalse(export_config["fail_on_unsupported_claims"])
             self.assertEqual(export_config["max_answer_words"], 140)
+
+    def test_notebook_experiments_change_one_factor_and_keep_separate_artifacts(self):
+        configs, prompts, namespaces = {}, {}, {}
+        for experiment in ("baseline", "attribution", "top3", "top6"):
+            with tempfile.TemporaryDirectory() as directory:
+                namespace = self.run_paths(Path(directory) / "missing", experiment=experiment)
+                exec(GENERATION_SETUP, namespace)
+                config = yaml.safe_load(namespace["GEN_CONFIG"].read_text(encoding="utf-8"))
+                configs[experiment] = config
+                prompts[experiment] = load_prompts(config, namespace["GEN_CONFIG"])
+                namespaces[experiment] = namespace
+                self.assertFalse(config["grounding_validator_enabled"])
+                self.assertTrue(config["grounding_report_enabled"])
+                export_config = yaml.safe_load(namespace["EXPORT_CONFIG"].read_text(encoding="utf-8"))
+                self.assertFalse(export_config["fail_on_unsupported_claims"])
+                self.assertTrue(export_config["fail_on_truncation"])
+        baseline = configs["baseline"]
+        for experiment, allowed in (("attribution", {"system_prompt_file"}),
+                                    ("top3", {"context_top_k"}), ("top6", {"context_top_k"})):
+            changed = {key for key in set(baseline) | set(configs[experiment])
+                       if baseline.get(key) != configs[experiment].get(key)}
+            self.assertEqual(changed, allowed)
+        self.assertEqual(configs["baseline"]["context_top_k"], 4)
+        self.assertEqual(configs["top3"]["context_top_k"], 3)
+        self.assertEqual(configs["top6"]["context_top_k"], 6)
+        self.assertEqual(prompts["top3"], prompts["baseline"])
+        self.assertEqual(prompts["top6"], prompts["baseline"])
+        self.assertEqual(prompts["attribution"][1], prompts["baseline"][1])
+        self.assertIn("Keep each fact attached", prompts["attribution"][0])
+        self.assertNotEqual(prompts["attribution"][0], prompts["baseline"][0])
+        for key in ("RUN_NAME", "BASE_GEN_CONFIG"):
+            self.assertEqual(len({str(n[key]) for n in namespaces.values()}), 4)
+        for key in ("GEN_CONFIG", "EXPORT_CONFIG"):
+            self.assertEqual(len({n[key].name for n in namespaces.values()}), 4)
+
+    def test_unknown_experiment_is_rejected_before_runtime_config(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "EXPERIMENT"):
+                self.run_paths(Path(directory) / "missing", experiment="typo")
 
     def test_stale_clone_is_rejected_before_generation(self):
         with tempfile.TemporaryDirectory() as directory:

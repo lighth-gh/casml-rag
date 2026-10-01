@@ -85,9 +85,24 @@ def generate_answer(backend, payload, config, on_attempt=None, attempt_reason="i
 
 
 def generate_grounded_answer(backend, payload, config, on_attempt=None):
-    """Generate, validate evidence-token support, and retry unsupported claims."""
+    """Report grounding by default; rewriting requires explicit opt-in."""
     result = generate_answer(backend, payload, config, on_attempt=on_attempt)
-    if not config.get("grounding_validator_enabled", True) or result.get("finish_reason") == "length":
+    if not config.get("grounding_validator_enabled", False):
+        result["grounding_mode"] = "disabled"
+        if config.get("grounding_report_enabled", True):
+            validation = validate_answer_grounding(
+                result["answer"], payload["evidence"],
+                max_words=int(config.get("grounding_repair_max_words", 140)))
+            result.update(
+                grounding_mode="report_only", answer_validation=validation,
+                validation_attempts=[{"retry_index": 0, "validation": validation,
+                                      "answer_head": result["answer"][:300],
+                                      "answer_tail": result["answer"][-300:]}])
+            if on_attempt is not None:
+                on_attempt(result)
+        return result
+    result["grounding_mode"] = "enforce"
+    if result.get("finish_reason") == "length":
         return result
     max_retries = int(config.get("grounding_validator_max_retries", 1))
     if max_retries < 0:
@@ -96,6 +111,7 @@ def generate_grounded_answer(backend, payload, config, on_attempt=None):
     validation_attempts = []
     drafts = []
     for retry_index in range(max_retries + 1):
+        result["grounding_mode"] = "enforce"
         validation = validate_answer_grounding(
             result["answer"], payload["evidence"],
             max_words=int(config.get("grounding_repair_max_words", 140)))
@@ -245,7 +261,8 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
                     result.update(generate_grounded_answer(backend, payload, config, on_attempt=record_attempt))
                     if not result["answer"].strip():
                         raise ValueError("Model produced an empty answer")
-                    result["status"] = ("ok" if result.get("answer_validation", {"valid": True})["valid"]
+                    result["status"] = ("ok" if result.get("grounding_mode") == "report_only"
+                                        or result.get("answer_validation", {"valid": True})["valid"]
                                         else "unsupported_claims")
                 else:
                     result.update(status="insufficient_context", answer="The provided excerpts do not contain enough information to answer this question.",
@@ -279,6 +296,14 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
         report = {"query_count": len(rows), "generated_this_call": len(pending), "resumed": resumed,
                   "errors": [r["query_id"] for r in ordered if r["status"] == "error"],
                   "unsupported_claims": [r["query_id"] for r in ordered if r["status"] == "unsupported_claims"],
+                  "grounding_warnings": [r["query_id"] for r in ordered
+                                        if r.get("grounding_mode") == "report_only"
+                                        and not r["answer_validation"]["valid"]],
+                  "grounding_warning_details": [
+                      {"query_id": r["query_id"], "question": r["question"],
+                       "answer_validation": r["answer_validation"]}
+                      for r in ordered if r.get("grounding_mode") == "report_only"
+                      and not r["answer_validation"]["valid"]],
                   "length_limited": [r["query_id"] for r in ordered if r.get("finish_reason") == "length"],
                   "retried_for_length": [r["query_id"] for r in ordered
                                           if any(a.get("reason") == "length_retry"

@@ -1,0 +1,31 @@
+backend: huggingface
+model_name: Qwen/Qwen2.5-1.5B-Instruct
+revision: 989aa7980e4cf806f80c7fef2b1adb7bc71aa306
+local_files_only: false
+device: auto
+dtype: auto
+attn_implementation: sdpa
+seed: 42
+context_top_k: 4
+context_token_budget: 1900
+context_window: 4096
+max_new_tokens: 384
+retry_max_new_tokens: 384
+retry_repetition_penalty: 1.15
+retry_no_repeat_ngram_size: 8
+retry_instruction: Give a complete, concise answer in at most 180 words. State each
+  relevant fact only once. Do not repeat sentences or continue a list unnecessarily.
+  Finish the answer after addressing the question. Use only the supplied excerpts.
+duplicate_overlap: 0.75
+do_sample: false
+repetition_penalty: 1.05
+no_repeat_ngram_size: 6
+eos_token_ids:
+- 151645
+- 151643
+pad_token_id: 151643
+abort_after_consecutive_length_limited: 1
+fail_fast: true
+system_prompt_file: ../../../prompts/system.txt
+user_prompt_file: ../../../prompts/user.txt
+grounding_validator_enabled: false

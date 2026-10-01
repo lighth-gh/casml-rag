@@ -1,0 +1,293 @@
+{
+  "purpose": "Manual development checklist, not official gold answers or official metric; no scores assigned without grading.",
+  "source_run_id": "2acc259830a4149d51174382346c4140278f86dcfd38364cb6b4704518cafa0c",
+  "queries": [
+    {
+      "id": "8",
+      "issue": "English output contains Vietnamese và and misspells trait names despite source list.",
+      "required": [
+        "openness to experience",
+        "conscientiousness",
+        "extroversion or extraversion",
+        "agreeableness",
+        "neuroticism"
+      ],
+      "avoid": [
+        "Vietnamese connective",
+        "misspelled canonical terms"
+      ],
+      "layer": "generation",
+      "pages": [
+        "382",
+        "393",
+        "22"
+      ]
+    },
+    {
+      "id": "11",
+      "issue": "1874 contradicts source 1873; unconscious/early childhood attributed to humanistic psychology.",
+      "required": [
+        "Wundt and structuralism",
+        "history spanning the approaches supported by selected evidence"
+      ],
+      "avoid": [
+        "1874 publication year",
+        "humanistic theory defined by unconscious/early childhood"
+      ],
+      "layer": "generation and breadth coverage",
+      "pages": [
+        "9",
+        "11",
+        "14",
+        "17"
+      ]
+    },
+    {
+      "id": "12",
+      "issue": "1889 lab year vs source 1879; invented 1948 birth; Freud methods assigned to James.",
+      "required": [
+        "Wundt: structuralism/introspection",
+        "James: functionalism"
+      ],
+      "avoid": [
+        "1889 laboratory year",
+        "1948 birth year",
+        "James using Freud methods"
+      ],
+      "layer": "generation entity attribution",
+      "pages": [
+        "9",
+        "10",
+        "30",
+        "31"
+      ],
+      "regression_note": "Version 11 correctly associates functionalism with James; Version 13 deletes the James introduction and joins retained sentences, changing the antecedent of He toward Wundt."
+    },
+    {
+      "id": "16",
+      "issue": "Adds electric shock in Little Albert example not in supplied context; official OpenStax describes loud sound.",
+      "required": [
+        "association of stimuli",
+        "unconditioned vs conditioned response",
+        "Pavlov example if useful"
+      ],
+      "avoid": [
+        "electric shock Little Albert",
+        "details unsupported by supplied context"
+      ],
+      "layer": "generation optional-detail hallucination",
+      "pages": [
+        "183",
+        "185",
+        "188",
+        "208"
+      ],
+      "external_reference": "https://openstax.org/books/psychology-2e/pages/6-2-classical-conditioning"
+    },
+    {
+      "id": "17",
+      "issue": "Transfers nearby humanism paragraph to Skinner.",
+      "required": [
+        "operant conditioning",
+        "reinforcement and punishment",
+        "Skinner box"
+      ],
+      "avoid": [
+        "Skinner credited with humanistic good-in-all-humans view"
+      ],
+      "layer": "generation heading/entity attribution",
+      "pages": [
+        "12",
+        "13",
+        "14",
+        "31"
+      ]
+    },
+    {
+      "id": "19",
+      "issue": "Treats general biomedical-treatment paragraph as client-centered therapy property.",
+      "required": [
+        "Carl Rogers",
+        "nondirective approach",
+        "active listening",
+        "unconditional positive regard",
+        "genuineness and empathy"
+      ],
+      "avoid": [
+        "ECT or medications presented as defining client-centered methods"
+      ],
+      "layer": "generation heading/topic attribution",
+      "pages": [
+        "15",
+        "614",
+        "629"
+      ]
+    },
+    {
+      "id": "22",
+      "issue": "Rank 1 selected evidence is bibliography material; definition remains in rank 2.",
+      "required": [
+        "biology-behavior relation",
+        "nervous-system structure/function"
+      ],
+      "avoid": [
+        "bibliography consuming first context slot",
+        "unrequested evolutionary material"
+      ],
+      "layer": "retrieval/content-role selection",
+      "pages": [
+        "638",
+        "19",
+        "71",
+        "73"
+      ]
+    },
+    {
+      "id": "26",
+      "issue": "Missing selected pages about sensorimotor/preoperational details; wrongly attributes postformal thought to Piaget.",
+      "required": [
+        "cognitive development",
+        "four stages when supported by restored context"
+      ],
+      "avoid": [
+        "Piaget credited with postformal stage"
+      ],
+      "layer": "retrieval coverage and generation attribution",
+      "pages": [
+        "22",
+        "287",
+        "290",
+        "317"
+      ]
+    },
+    {
+      "id": "30",
+      "issue": "Misnames American Psychiatric Association as American Psychologist.",
+      "required": [
+        "clinically significant disturbances in cognition/emotion/behavior",
+        "dysfunction",
+        "distress or impairment"
+      ],
+      "avoid": [
+        "wrong institutional name",
+        "definition removed to pass validator"
+      ],
+      "layer": "generation terminology",
+      "pages": [
+        "538",
+        "540"
+      ]
+    },
+    {
+      "id": "31",
+      "issue": "Invents 568 and 22013; mixes count into publication date; bibliography in selected context.",
+      "required": [
+        "DSM-5 classification/diagnostic manual",
+        "2013 if included",
+        "237 if included",
+        "diagnostic features/criteria"
+      ],
+      "avoid": [
+        "568 disorders",
+        "22013",
+        "published in 237 diagnoses",
+        "unanchored It-only response"
+      ],
+      "layer": "generation numeric attribution and retrieval noise",
+      "pages": [
+        "542",
+        "591",
+        "716",
+        "579"
+      ]
+    },
+    {
+      "id": "35",
+      "issue": "Cross-sectional substituted for cross-cultural despite exact definition in context.",
+      "required": [
+        "diverse populations usually within one country",
+        "cross-cultural comparison across countries if contrasted"
+      ],
+      "avoid": [
+        "cross-sectional used as cross-cultural synonym"
+      ],
+      "layer": "generation terminology",
+      "pages": [
+        "17",
+        "402",
+        "474"
+      ]
+    },
+    {
+      "id": "45",
+      "issue": "Attributes Prosser school-selection conclusion to Clarks; misspells Prosser.",
+      "required": [
+        "Clark doll-choice findings",
+        "segregation and self-concept",
+        "research role in school-desegregation case"
+      ],
+      "avoid": [
+        "Prosser finding attributed to Clarks",
+        "Prossers",
+        "automatic removal solely because relevant chunk has negative reranker score"
+      ],
+      "layer": "generation entity attribution and retrieval discrimination",
+      "pages": [
+        "17",
+        "304",
+        "38",
+        "59"
+      ]
+    },
+    {
+      "id": "48",
+      "issue": "All selected chunks focus on personality disorders; no mood-disorder definition coverage.",
+      "required": [
+        "mood-disorder definition supported by added evidence",
+        "enduring personality-pattern definition",
+        "comparison without unsupported rate claims"
+      ],
+      "avoid": [
+        "unsupported relative hospitalization/suicide rates",
+        "less likely depression/bipolar claim from retry"
+      ],
+      "layer": "retrieval multi-part coverage",
+      "pages": [
+        "582",
+        "583",
+        "584"
+      ]
+    },
+    {
+      "id": "50",
+      "issue": "Repeated core ideas and use of exercise-question topics as supporting explanatory material.",
+      "required": [
+        "analyze/evaluate information",
+        "scientific method and skepticism",
+        "recognize bias and logical reasoning"
+      ],
+      "avoid": [
+        "duplicated skills paragraphs",
+        "list of chapter exercise prompts treated as necessary answer facts"
+      ],
+      "layer": "generation concision and content-role selection",
+      "pages": [
+        "9",
+        "32",
+        "444",
+        "597"
+      ]
+    }
+  ],
+  "control_ids": [
+    "1",
+    "4",
+    "9",
+    "15",
+    "24",
+    "25",
+    "34",
+    "46"
+  ],
+  "control_note": "Controls are initial review candidates; they must also be checked against evidence before being treated as clean."
+}

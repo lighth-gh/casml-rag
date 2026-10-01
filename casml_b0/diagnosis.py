@@ -14,6 +14,9 @@ def write_diagnosis(out, manifest, rows, results, *, state, runtime, resumed=0,
     issues = {
         "errors": [q["query_id"] for q in queries if q["status"] == "error"],
         "unsupported_claims": [q["query_id"] for q in queries if q["status"] == "unsupported_claims"],
+        "grounding_warnings": [q["query_id"] for q in queries
+                               if q.get("grounding_mode") == "report_only"
+                               and not q["answer_validation"]["valid"]],
         "length_limited": [q["query_id"] for q in queries if q.get("finish_reason") == "length"],
         "insufficient_context": [q["query_id"] for q in queries if q["status"] == "insufficient_context"],
         "retried_for_length": [q["query_id"] for q in queries

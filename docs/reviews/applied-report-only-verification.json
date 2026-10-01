@@ -1,0 +1,27 @@
+{
+  "kind": "saved_v11_output_replay",
+  "queries": 50,
+  "answers_context_messages_tokens_finish_preserved": 50,
+  "grounding_retries": 0,
+  "repairs": 0,
+  "grounding_warnings": [
+    "11",
+    "12",
+    "13",
+    "14",
+    "26",
+    "27",
+    "29",
+    "30",
+    "31",
+    "33",
+    "36",
+    "38",
+    "41",
+    "42",
+    "45",
+    "48",
+    "50"
+  ],
+  "note": "Replays saved model outputs through the new report-only policy. Does not run Qwen inference or establish a new Kaggle score."
+}

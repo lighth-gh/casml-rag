@@ -280,7 +280,7 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
                 self.calls.append((payload, dict(config)))
                 if (config.get("repetition_penalty", 1.0) <= 1.0 or
                         config.get("no_repeat_ngram_size", 0) == 0 or
-                        "at most 140 words" not in payload["messages"][-1]["content"]):
+                        production["retry_instruction"] not in payload["messages"][-1]["content"]):
                     return {"answer": "Repeated text. " * 100, "output_tokens": config["max_new_tokens"],
                             "finish_reason": "length"}
                 return super().generate(payload, config)
@@ -295,7 +295,7 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
         self.assertEqual(len(backend.calls), 6)
         for n, p in enumerate(predictions):
             first, retry = backend.calls[2*n][0], backend.calls[2*n + 1][0]
-            self.assertNotIn("140 words", first["messages"][-1]["content"])
+            self.assertNotIn(production["retry_instruction"], first["messages"][-1]["content"])
             self.assertEqual(first["evidence"], retry["evidence"])
             self.assertEqual(first["context"], retry["context"])
             self.assertIn(p["question"], retry["messages"][-1]["content"])
@@ -432,7 +432,8 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
         manifest["files"]["predictions.jsonl"] = file_hash(run / "predictions.jsonl")
         write_json(run / "manifest.json", manifest)
         with self.assertRaisesRegex(ValueError, "evidence-token or word-count"):
-            export(run, self.data / "queries.json", self.exp, self.base / "blocked_export")
+            export(run, self.data / "queries.json", {**self.exp, "fail_on_unsupported_claims": True},
+                   self.base / "blocked_export")
 
     def test_demo_cannot_accidentally_be_exported_as_real_b0(self):
         generate(self.cache, self.gen, self.config_path, self.base / "demo")
@@ -444,6 +445,76 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
         write_json(path, [{"query_id": 1, "question": "a"}, {"query_id": "1", "question": "b"}])
         with self.assertRaisesRegex(ValueError, "duplicate"):
             load_queries(path)
+
+    def test_report_only_preserves_answer_messages_and_decoding(self):
+        draft = "James was born in 1948. He was a functionalist. " + "psychology " * 141
+        draft = draft.strip()
+
+        class OneShot(ExtractiveDemoGenerator):
+            calls = 0
+
+            def generate(self, payload, config):
+                self.calls += 1
+                if self.calls != 1:
+                    raise AssertionError("Report-only must not regenerate the draft")
+                return {"answer": draft, "output_tokens": self.count_text(draft), "finish_reason": "eos"}
+
+        backend = OneShot()
+        payload = {"messages": [{"role": "user", "content": "Who was James?"}],
+                   "input_tokens": 8, "evidence": [{"text": "William James was a functionalist."}],
+                   "context": "original context"}
+        config = {"max_new_tokens": 384, "retry_max_new_tokens": 384, "context_window": 4096,
+                  "grounding_validator_enabled": False, "grounding_report_enabled": True,
+                  "grounding_validator_max_retries": 1, "grounding_deterministic_repair": True}
+        snapshots = []
+        result = generate_grounded_answer(backend, payload, config,
+                                          on_attempt=lambda value: snapshots.append(dict(value)))
+        self.assertEqual(result["answer"], draft)
+        self.assertEqual(result["messages"], payload["messages"])
+        self.assertEqual(result["context"], payload["context"])
+        self.assertEqual(result["finish_reason"], "eos")
+        self.assertEqual(result["output_tokens"], backend.count_text(draft))
+        self.assertEqual(len(result["generation_attempts"]), 1)
+        self.assertNotIn("grounding_repair", result)
+        self.assertEqual(result["grounding_mode"], "report_only")
+        self.assertFalse(result["answer_validation"]["valid"])
+        self.assertTrue(result["answer_validation"]["too_long"])
+        self.assertEqual(result["answer_validation"]["unsupported_years"], ["1948"])
+        self.assertEqual(snapshots[-1]["answer_validation"], result["answer_validation"])
+
+    def test_report_only_warnings_survive_generation_resume_and_export(self):
+        draft = "William James was born in 1948. He was a functionalist."
+
+        class WarningBackend(ExtractiveDemoGenerator):
+            calls = 0
+
+            def generate(self, payload, config):
+                self.calls += 1
+                return {"answer": draft, "output_tokens": self.count_text(draft), "finish_reason": "eos"}
+
+        backend = WarningBackend()
+        run = self.base / "report_only"
+        config = {**self.gen, "grounding_validator_enabled": False, "grounding_report_enabled": True}
+        with patch("casml_b0.generation.make_generator", return_value=backend):
+            generate(self.cache, config, self.config_path, run)
+        predictions = read_jsonl(run / "predictions.jsonl")
+        ids = [p["query_id"] for p in predictions]
+        self.assertEqual(backend.calls, len(ids))
+        self.assertTrue(all(p["answer"] == draft and p["status"] == "ok" for p in predictions))
+        self.assertTrue(all(len(p["generation_attempts"]) == 1 for p in predictions))
+        report = read_json(run / "report.json")
+        diagnosis = read_json(run / "diagnosis.json")
+        self.assertEqual(report["grounding_warnings"], ids)
+        self.assertEqual(report["unsupported_claims"], [])
+        self.assertEqual(diagnosis["summary"]["grounding_warnings"], ids)
+        self.assertTrue(diagnosis["summary"]["generation_ready_for_export"])
+        with patch("casml_b0.generation.make_generator", side_effect=AssertionError("Must reuse complete run")):
+            generate(self.cache, config, self.config_path, run)
+        export(run, self.data / "queries.json", self.exp, self.base / "advisory_export")
+        rows = csv_rows(self.base / "advisory_export/submission.csv")
+        self.assertEqual([r["answer"] for r in rows], [draft] * len(ids))
+        validation = read_json(self.base / "advisory_export/validation.json")
+        self.assertEqual([item["query_id"] for item in validation["unsupported_claims"]], ids)
 
     def test_grounding_validator_catches_unsupported_numbers_years_and_names(self):
         evidence = [{"text": ("Wilhelm Wundt established his laboratory in 1879. William James was born in 1842. "

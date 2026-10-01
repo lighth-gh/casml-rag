@@ -123,6 +123,23 @@ Chạy prepare với `--page-map-override data/page_map_override.csv` và một 
 
 Notebook chạy mỗi bước bằng process riêng để giải phóng model sau khi bước kết thúc. Nó không ghi vào `/kaggle/input`. Nếu làm hoàn toàn offline, chuẩn bị model snapshot trước và sửa YAML dùng đường dẫn local với `local_files_only: true`.
 
+## Baseline bản 11 và các thử nghiệm generation
+
+Notebook `notebooks/CASML_R1_end_to_end.ipynb` có biến `EXPERIMENT` ở section 0:
+
+| Giá trị | Prompt | Context top-k |
+|---|---|---:|
+| `baseline` (mặc định) | Prompt bản 11 | 4 |
+| `attribution` | Prompt mới giữ đúng người/chủ đề/thuật ngữ | 4 |
+| `top3` | Prompt bản 11 | 3 |
+| `top6` | Prompt bản 11 | 6 |
+
+Cả bốn dùng Qwen 1.5B cùng revision/seed/decoding, budget context 1900, max output 384 token, cùng retrieval cache. Mỗi lựa chọn có config/run/output riêng. Đổi `EXPERIMENT`, chạy lại cell paths + runtime config ở section 0, rồi section 4–5; không cần chạy lại prepare/index/retrieve nếu đã có cache hợp lệ. `attribution`, `top3`, `top6` là các ablation độc lập từ baseline.
+
+CLI dùng `configs/generate.yaml` hoặc `configs/experiments/generate_attribution.yaml`, `generate_top3.yaml`, `generate_top6.yaml`, và `configs/export.yaml`. Chọn thư mục run/output mới cho từng variant.
+
+Mặc định `grounding_validator_enabled: false`, `grounding_report_enabled: true`: vẫn có `answer_validation` và `grounding_warnings` trong diagnosis/report nhưng không sửa answer, không đổi status sang lỗi. Export lưu các heuristic findings trong `validation.json.unsupported_claims` với `fail_on_unsupported_claims: false`. Cảnh báo gồm cả word count, không phải chứng nhận factual accuracy. Cutoff, checksum, ID/schema và source checks vẫn giữ nguyên. Chính sách retry khi cutoff dùng lại prompt tối đa 180 từ của bản 11; system prompt baseline vẫn tối đa 140 từ.
+
 ## Chạy demo nhanh
 
 Chế độ này kiểm tra luồng và metadata bằng word hashing + trích câu đơn giản; **không dùng model RAG thật**. Nó không được phép xuất bằng cấu hình production mặc định.
@@ -137,7 +154,7 @@ PDF/queries mẫu đã có trong `examples/`. `scripts/make_demo.py` có thể t
 
 ## Chạy lại, lỗi và giới hạn
 
-- Mỗi run generation mới tạo `runs/<RUN_NAME>/diagnosis.json` ngay khi khởi tạo run hợp lệ, rồi cập nhật sau mỗi lần sinh và mỗi câu. File chứa cấu hình/prompt, phiên bản môi trường, câu hỏi, đáp án đầy đủ, context/evidence, số token, lịch sử retry và traceback lỗi; có thể gửi riêng file này để chẩn đoán. Các trạng thái gồm `running`, `completed`, `failed`, `interrupted`; summary liệt kê câu lỗi, bị cắt, thiếu evidence, vi phạm grounding và chưa chạy. File vẫn được lưu khi lỗi tải model, lỗi một câu hoặc Ctrl+C; nếu tiến trình bị kill cứng thì chỉ còn snapshot gần nhất, có thể vẫn ghi `running`. Lỗi input/config trước khi khởi tạo run không tạo artifact. Notebook hiển thị link diagnosis cả khi generation báo lỗi. Run hoàn tất đưa checksum file vào manifest. `generation_ready_for_export` yêu cầu không còn lỗi grounding nhưng validator chỉ kiểm tra token số/năm/tên riêng, không xác minh quan hệ giữa các dữ kiện. Dùng run mới mặc định `hybrid_r3_qwen15b_t384_grounded_v2`; không trộn với checkpoint của run lỗi cũ.
+- Mỗi run generation mới tạo `runs/<RUN_NAME>/diagnosis.json` ngay khi khởi tạo run hợp lệ, rồi cập nhật sau mỗi lần sinh và mỗi câu. File chứa cấu hình/prompt, phiên bản môi trường, câu hỏi, đáp án đầy đủ, context/evidence, số token, lịch sử retry và traceback lỗi; có thể gửi riêng file này để chẩn đoán. Các trạng thái gồm `running`, `completed`, `failed`, `interrupted`; summary liệt kê câu lỗi, bị cắt, thiếu evidence, cảnh báo grounding và chưa chạy. File vẫn được lưu khi lỗi tải model, lỗi một câu hoặc Ctrl+C; nếu tiến trình bị kill cứng thì chỉ còn snapshot gần nhất, có thể vẫn ghi `running`. Lỗi input/config trước khi khởi tạo run không tạo artifact. Notebook hiển thị link diagnosis cả khi generation báo lỗi. Run hoàn tất đưa checksum file vào manifest. `generation_ready_for_export` là kiểm tra hoàn tất kỹ thuật; `grounding_warnings` không chặn export. Mặc định grounding chỉ báo cáo, không retry/cắt đáp án; validator kiểm tra token số/năm/tên riêng và word count, không xác minh quan hệ giữa các dữ kiện. Dùng run mới mặc định `hybrid_r4_baseline_qwen15b_t384_report_only`; không trộn với checkpoint của run lỗi cũ.
 - Generation lưu mỗi câu ngay sau khi xử lý. Nếu lỗi runtime, chạy lại đúng lệnh để giữ câu thành công và thử lại câu lỗi. Nếu đổi code/config/prompt, tạo run mới.
 - `generate --limit 3` chỉ kiểm tra nhanh 3 câu đầu; dùng một thư mục run riêng. Export sẽ từ chối dùng run thiếu câu với bộ queries đầy đủ.
 - Qwen dùng rõ hai stop token chính thức `<|im_end|>`/`<|endoftext|>` và SDPA. Đáp án tối đa 384 token; nếu chạm trần, generation chỉ thử lại một lần ở cùng ngân sách với prompt ngắn và kiểm soát lặp, không tăng lên 1024/2048 token.

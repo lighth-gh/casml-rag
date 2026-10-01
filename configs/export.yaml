@@ -3,6 +3,7 @@
 page_mode: printed
 page_value_type: integer
 fail_on_truncation: true
-fail_on_unsupported_claims: true
+# Keep evidence-token/word-count warnings in validation.json without blocking export.
+fail_on_unsupported_claims: false
 max_answer_words: 140
 allow_demo: false

@@ -47,3 +47,15 @@ Thử đổi `context_top_k` là thí nghiệm context packing, không phải so
 4. Ablation retrieval: giữ generation cố định, lần lượt tắt BM25 hoặc reranker để đo Recall@k và điểm leaderboard.
 5. Ablation generation: giữ cache hybrid cố định, so Qwen 0.5B/1.5B và context top 3/4/6; chỉ thay một yếu tố mỗi lượt.
 6. Chỉ thêm HyDE nếu có kiểm tra riêng về lợi ích, độ trễ và chi phí. HyDE là query transformation trong nhánh retrieval, không đưa vào generation trả lời cuối.
+
+
+## Ablation bản 11: prompt và context
+
+Các cấu hình chính thức hiện có:
+
+- `configs/generate.yaml`: baseline bản 11, prompt cũ/top4.
+- `configs/experiments/generate_attribution.yaml`: chỉ system prompt mới.
+- `configs/experiments/generate_top3.yaml`: prompt baseline/top3.
+- `configs/experiments/generate_top6.yaml`: prompt baseline/top6.
+
+Notebook chọn qua `EXPERIMENT = "baseline" | "attribution" | "top3" | "top6"` ở section 0; chạy lại paths/runtime config rồi generation/export. Các variant dùng chung retrieval cache và có output riêng. Grounding chỉ báo cáo; kiểm tra cutoff vẫn chặn export. So correctness/coverage/unsupported claims trên checklist và toàn bộ 50 câu, không dùng validator pass rate để thay accuracy.

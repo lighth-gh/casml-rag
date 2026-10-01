@@ -16,13 +16,15 @@ retry_max_new_tokens: 384
 retry_repetition_penalty: 1.15
 retry_no_repeat_ngram_size: 8
 retry_instruction: >-
-  Give a complete, concise answer in at most 140 words. State each relevant fact
+  Give a complete, concise answer in at most 180 words. State each relevant fact
   only once. Do not repeat sentences or continue a list unnecessarily.
   Finish the answer after addressing the question. Use only the supplied excerpts.
-grounding_validator_enabled: true
-grounding_validator_max_retries: 1
+# Grounding checks are advisory and never rewrite the initial answer.
+grounding_validator_enabled: false
+grounding_report_enabled: true
+grounding_validator_max_retries: 0
 grounding_retry_max_new_tokens: 224
-grounding_deterministic_repair: true
+grounding_deterministic_repair: false
 grounding_repair_max_words: 140
 grounding_validator_retry_instruction: >-
   Use exact evidence only. Do not introduce any number, year, person,

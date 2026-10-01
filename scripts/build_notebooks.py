@@ -181,13 +181,24 @@ INDEX = WORK / "artifacts/index_bge_v3"
 RETRIEVAL = WORK / "artifacts/retrieval_hybrid_r2"
 GEN_MAX_NEW_TOKENS = 384
 GEN_RETRY_MAX_NEW_TOKENS = 384
-RUN_NAME = f"hybrid_r3_qwen15b_t{GEN_MAX_NEW_TOKENS}_grounded_v2"
+# baseline: prompt bản 11 + top4; attribution: chỉ prompt mới.
+# top3/top6: prompt bản 11, chỉ đổi số chunks. Dùng chung retrieval cache.
+EXPERIMENT = "baseline"
+EXPERIMENT_CONFIGS = {
+    "baseline": ROOT / "configs/generate.yaml",
+    "attribution": ROOT / "configs/experiments/generate_attribution.yaml",
+    "top3": ROOT / "configs/experiments/generate_top3.yaml",
+    "top6": ROOT / "configs/experiments/generate_top6.yaml",
+}
+if EXPERIMENT not in EXPERIMENT_CONFIGS:
+    raise ValueError(f"EXPERIMENT phải là một trong {list(EXPERIMENT_CONFIGS)}")
+RUN_NAME = f"hybrid_r4_{EXPERIMENT}_qwen15b_t{GEN_MAX_NEW_TOKENS}_report_only"
 RUN = WORK / "runs" / RUN_NAME
 OUTPUT = WORK / "outputs" / RUN_NAME
-BASE_GEN_CONFIG = ROOT / "configs/generate.yaml"
-GEN_CONFIG = WORK / "configs" / f"generate_qwen15b_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}.yaml"
+BASE_GEN_CONFIG = EXPERIMENT_CONFIGS[EXPERIMENT]
+GEN_CONFIG = WORK / "configs" / f"generate_{EXPERIMENT}_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}.yaml"
 BASE_EXPORT_CONFIG = ROOT / "configs/export.yaml"
-EXPORT_CONFIG = WORK / "configs/export_documented_schema.yaml"
+EXPORT_CONFIG = WORK / "configs" / f"export_{EXPERIMENT}_documented_schema.yaml"
 # Khi đổi prompt/model/config, dùng RUN và OUTPUT mới.
 '''
 
@@ -213,6 +224,7 @@ import yaml
 if ("retry_instruction" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
         "write_diagnosis" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
         "generate_grounded_answer" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
+        "grounding_report_enabled" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
         not (ROOT / "casml_b0/validation.py").is_file() or
         "abort_after_consecutive_length_limited" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
         "no_repeat_ngram_size" not in (ROOT / "casml_b0/llm.py").read_text(encoding="utf-8") or
@@ -228,14 +240,15 @@ generation_config.setdefault("pad_token_id", 151643)
 generation_config.setdefault("abort_after_consecutive_length_limited", 1)
 generation_config.setdefault("retry_repetition_penalty", 1.15)
 generation_config.setdefault("retry_no_repeat_ngram_size", 8)
-generation_config["retry_instruction"] = ("Give a complete, concise answer in at most 140 words. "
+generation_config["retry_instruction"] = ("Give a complete, concise answer in at most 180 words. "
                                           "State each relevant fact only once. Do not repeat sentences or continue "
                                           "a list unnecessarily. Finish the answer after addressing the question. "
                                           "Use only the supplied excerpts.")
-generation_config["grounding_validator_enabled"] = True
-generation_config["grounding_validator_max_retries"] = 1
+generation_config["grounding_validator_enabled"] = False
+generation_config["grounding_report_enabled"] = True
+generation_config["grounding_validator_max_retries"] = 0
 generation_config["grounding_retry_max_new_tokens"] = 224
-generation_config["grounding_deterministic_repair"] = True
+generation_config["grounding_deterministic_repair"] = False
 generation_config["grounding_repair_max_words"] = 140
 generation_config["grounding_validator_retry_instruction"] = (
     "Use exact evidence only. Do not introduce any number, year, person, organization, place, "
@@ -252,9 +265,13 @@ GEN_CONFIG.write_text(yaml.safe_dump(generation_config, sort_keys=False), encodi
 export_config = yaml.safe_load(BASE_EXPORT_CONFIG.read_text(encoding="utf-8"))
 export_config.pop("require_sample", None)
 export_config["page_value_type"] = "integer"
-export_config["fail_on_unsupported_claims"] = True
+export_config["fail_on_unsupported_claims"] = False
 export_config["max_answer_words"] = 140
 EXPORT_CONFIG.write_text(yaml.safe_dump(export_config, sort_keys=False), encoding="utf-8")
+print("Experiment:", EXPERIMENT)
+print("context_top_k:", generation_config["context_top_k"])
+print("system_prompt_file:", generation_config["system_prompt_file"])
+print("Grounding: report-only; no retry or sentence deletion")
 print("Generation config:", GEN_CONFIG)
 print("max_new_tokens:", generation_config["max_new_tokens"])
 print("retry_max_new_tokens:", generation_config["retry_max_new_tokens"])
@@ -333,7 +350,9 @@ def main():
              'Trước khi nộp, kiểm tra page mapping trong validation/audit.')
     setup_note = ('## 0. Setup + input paths + runtime config\n\n'
                   'Chỉnh `ROOT_OVERRIDE`, `INPUT_ROOT_OVERRIDE`, `PDF_OVERRIDE`, `QUERIES_OVERRIDE` và '
-                  '`SAMPLE_OVERRIDE` tại đây. Các section phía dưới dùng chung những đường dẫn này.')
+                  '`SAMPLE_OVERRIDE` tại đây. Chọn `EXPERIMENT`: `baseline`, `attribution`, `top3`, '
+                  'hoặc `top6`. Baseline khôi phục policy bản 11; các biến thể chỉ đổi một yếu tố. '
+                  'Grounding chỉ báo cáo, không sửa đáp án hoặc chặn export. Các section phía dưới dùng chung đường dẫn này.')
     full = [md(intro), md(setup_note), code(SETUP),
             paths(auto_pdf=True, require_pdf=True, auto_queries=True, auto_sample=True,
                   require_sample=False),
@@ -346,7 +365,8 @@ def main():
         3: ('Hybrid retrieval + reranker',
             'Chỉnh `configs/retrieve.yaml` để tune dense/BM25/RRF/reranker, rồi chạy lại section 3–5.'),
         4: ('Qwen 1.5B generation',
-            'Chỉnh `configs/generate.yaml` hoặc các override ở section 0, rồi chạy lại section 4–5.'),
+            'Đổi `EXPERIMENT` ở section 0, chạy lại runtime config rồi section 4–5. '
+            'Giữ nguyên retrieval; mỗi lựa chọn có run/output/config riêng.'),
         5: ('Validate + export submission',
             'Luôn tạo `submission.csv`; sample_submission.csv là tùy chọn. Kiểm tra `validation.json` và `audit.html` trước khi nộp.'),
     }
