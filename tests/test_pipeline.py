@@ -11,15 +11,16 @@ from unittest.mock import patch
 
 import numpy as np
 
-from casml_b0.artifacts import digest, file_hash, load_config, read_json, read_jsonl, write_json
+from casml_b0.artifacts import digest, file_hash, load_config, read_json, read_jsonl, write_json, write_jsonl
 from casml_b0.contracts import load_queries
 from casml_b0.context import pack_context, messages_for
 from casml_b0.exporting import export, references_for
-from casml_b0.generation import generate, generate_answer
+from casml_b0.generation import generate, generate_answer, generate_grounded_answer
 from casml_b0.indexing import build_index
 from casml_b0.llm import ExtractiveDemoGenerator
 from casml_b0.prepare import prepare
 from casml_b0.retrieval import BM25Index, reciprocal_rank_fusion, retrieve
+from casml_b0.validation import validate_answer_grounding
 from scripts.make_demo import create_demo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -279,7 +280,7 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
                 self.calls.append((payload, dict(config)))
                 if (config.get("repetition_penalty", 1.0) <= 1.0 or
                         config.get("no_repeat_ngram_size", 0) == 0 or
-                        "at most 180 words" not in payload["messages"][-1]["content"]):
+                        "at most 140 words" not in payload["messages"][-1]["content"]):
                     return {"answer": "Repeated text. " * 100, "output_tokens": config["max_new_tokens"],
                             "finish_reason": "length"}
                 return super().generate(payload, config)
@@ -294,7 +295,7 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
         self.assertEqual(len(backend.calls), 6)
         for n, p in enumerate(predictions):
             first, retry = backend.calls[2*n][0], backend.calls[2*n + 1][0]
-            self.assertNotIn("180 words", first["messages"][-1]["content"])
+            self.assertNotIn("140 words", first["messages"][-1]["content"])
             self.assertEqual(first["evidence"], retry["evidence"])
             self.assertEqual(first["context"], retry["context"])
             self.assertIn(p["question"], retry["messages"][-1]["content"])
@@ -419,6 +420,20 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
         self.assertTrue(validation["schema_contract_verified"])
         self.assertFalse(validation["official_sample_verified"])
 
+    def test_export_blocks_unsupported_claims_even_if_prediction_status_is_ok(self):
+        run = self.base / "unsupported_export"
+        generate(self.cache, self.gen, self.config_path, run)
+        predictions = read_jsonl(run / "predictions.jsonl")
+        predictions[0]["answer"] = "The finding was published in 1948 by Invented Person."
+        copy = {key: value for key, value in predictions[0].items() if key != "record_sha256"}
+        predictions[0]["record_sha256"] = digest(copy)
+        write_jsonl(run / "predictions.jsonl", predictions)
+        manifest = read_json(run / "manifest.json")
+        manifest["files"]["predictions.jsonl"] = file_hash(run / "predictions.jsonl")
+        write_json(run / "manifest.json", manifest)
+        with self.assertRaisesRegex(ValueError, "absent from their evidence"):
+            export(run, self.data / "queries.json", self.exp, self.base / "blocked_export")
+
     def test_demo_cannot_accidentally_be_exported_as_real_b0(self):
         generate(self.cache, self.gen, self.config_path, self.base / "demo")
         with self.assertRaisesRegex(ValueError, "Demo backends"):
@@ -429,6 +444,51 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
         write_json(path, [{"query_id": 1, "question": "a"}, {"query_id": "1", "question": "b"}])
         with self.assertRaisesRegex(ValueError, "duplicate"):
             load_queries(path)
+
+    def test_grounding_validator_catches_unsupported_numbers_years_and_names(self):
+        evidence = [{"text": ("Wilhelm Wundt established his laboratory in 1879. William James was born in 1842. "
+                              "His book PrinciplesofPhysiologicalPsychology was published in 1873.")}]
+        invalid = validate_answer_grounding(
+            "1. Wilhelm Wundt and WilliamJames established the laboratory in 1889. James was born in 1948.",
+            evidence,
+        )
+        self.assertFalse(invalid["valid"])
+        self.assertEqual(invalid["unsupported_years"], ["1889", "1948"])
+        self.assertIn("Wilhelm Wundt and WilliamJames", invalid["unsupported_proper_names"])
+        self.assertNotIn("1", invalid["unsupported_numbers"])
+        valid = validate_answer_grounding(
+            "Wilhelm Wundt established the laboratory in 1879 and published Principles of Physiological Psychology.",
+            evidence,
+        )
+        self.assertTrue(valid["valid"])
+
+    def test_grounding_validator_retries_with_a_corrective_prompt(self):
+        class SequenceBackend:
+            context_window = 4096
+
+            def __init__(self):
+                self.answers = ["Wundt established the laboratory in 1889.",
+                                "Wundt established the laboratory in 1879."]
+
+            def count_messages(self, messages):
+                return sum(len(message["content"].split()) + 4 for message in messages) + 4
+
+            def generate(self, payload, config):
+                answer = self.answers.pop(0)
+                return {"answer": answer, "output_tokens": len(answer.split()), "finish_reason": "eos"}
+
+        backend = SequenceBackend()
+        payload = {"messages": [{"role": "user", "content": "Use the excerpt."}], "input_tokens": 8,
+                   "evidence": [{"text": "Wundt established the laboratory in 1879."}], "context": "excerpt"}
+        config = {"max_new_tokens": 64, "retry_max_new_tokens": 64, "context_window": 512,
+                  "grounding_validator_enabled": True, "grounding_validator_max_retries": 1,
+                  "grounding_validator_retry_instruction": "Use exact evidence only."}
+        result = generate_grounded_answer(backend, payload, config)
+        self.assertEqual(result["answer"], "Wundt established the laboratory in 1879.")
+        self.assertTrue(result["answer_validation"]["valid"])
+        self.assertEqual(len(result["validation_attempts"]), 2)
+        self.assertEqual(len(result["generation_attempts"]), 2)
+        self.assertIn("Every number, year, and proper name", result["messages"][-1]["content"])
 
     def test_bm25_and_rrf_preserve_exact_term_and_dense_candidates(self):
         bm25 = BM25Index([

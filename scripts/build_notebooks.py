@@ -181,7 +181,7 @@ INDEX = WORK / "artifacts/index_bge_v3"
 RETRIEVAL = WORK / "artifacts/retrieval_hybrid_r2"
 GEN_MAX_NEW_TOKENS = 384
 GEN_RETRY_MAX_NEW_TOKENS = 384
-RUN_NAME = f"hybrid_r2_qwen15b_t{GEN_MAX_NEW_TOKENS}_eos_guard"
+RUN_NAME = f"hybrid_r3_qwen15b_t{GEN_MAX_NEW_TOKENS}_grounded"
 RUN = WORK / "runs" / RUN_NAME
 OUTPUT = WORK / "outputs" / RUN_NAME
 BASE_GEN_CONFIG = ROOT / "configs/generate.yaml"
@@ -212,11 +212,13 @@ import yaml
 
 if ("retry_instruction" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
         "write_diagnosis" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
+        "generate_grounded_answer" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
+        not (ROOT / "casml_b0/validation.py").is_file() or
         "abort_after_consecutive_length_limited" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
         "no_repeat_ngram_size" not in (ROOT / "casml_b0/llm.py").read_text(encoding="utf-8") or
         "eos_token_ids" not in (ROOT / "casml_b0/llm.py").read_text(encoding="utf-8") or
         "reciprocal_rank_fusion" not in (ROOT / "casml_b0/retrieval.py").read_text(encoding="utf-8")):
-    raise RuntimeError("Mã nguồn đang dùng chưa có diagnosis, EOS guard hoặc fail-fast chống vòng lặp. Cập nhật repo chứa bản sửa "
+    raise RuntimeError("Mã nguồn đang dùng chưa có diagnosis, EOS guard, grounding validator hoặc fail-fast chống vòng lặp. Cập nhật repo chứa bản sửa "
                        "(UPDATE_REPO = True), hoặc đặt ROOT_OVERRIDE tới bản project mới rồi chạy lại setup.")
 generation_config = yaml.safe_load(BASE_GEN_CONFIG.read_text(encoding="utf-8"))
 generation_config["max_new_tokens"] = GEN_MAX_NEW_TOKENS
@@ -226,10 +228,16 @@ generation_config.setdefault("pad_token_id", 151643)
 generation_config.setdefault("abort_after_consecutive_length_limited", 1)
 generation_config.setdefault("retry_repetition_penalty", 1.15)
 generation_config.setdefault("retry_no_repeat_ngram_size", 8)
-generation_config.setdefault("retry_instruction", "Give a complete, concise answer in at most 180 words. "
-                             "State each relevant fact only once. Do not repeat sentences or continue "
-                             "a list unnecessarily. Finish the answer after addressing the question. "
-                             "Use only the supplied excerpts.")
+generation_config["retry_instruction"] = ("Give a complete, concise answer in at most 140 words. "
+                                          "State each relevant fact only once. Do not repeat sentences or continue "
+                                          "a list unnecessarily. Finish the answer after addressing the question. "
+                                          "Use only the supplied excerpts.")
+generation_config["grounding_validator_enabled"] = True
+generation_config["grounding_validator_max_retries"] = 1
+generation_config["grounding_validator_retry_instruction"] = (
+    "Use exact evidence only. Do not introduce any number, year, person, organization, place, "
+    "named theory, or named work absent from the excerpts."
+)
 for key in ("system_prompt_file", "user_prompt_file"):
     prompt_path = Path(generation_config[key]).expanduser()
     if not prompt_path.is_absolute():
@@ -249,6 +257,7 @@ print("retry_repetition_penalty:", generation_config["retry_repetition_penalty"]
 print("retry_no_repeat_ngram_size:", generation_config["retry_no_repeat_ngram_size"])
 print("eos_token_ids:", generation_config["eos_token_ids"])
 print("abort_after_consecutive_length_limited:", generation_config["abort_after_consecutive_length_limited"])
+print("grounding_validator_max_retries:", generation_config["grounding_validator_max_retries"])
 print("Export config:", EXPORT_CONFIG)
 print("Run:", RUN)
 '''

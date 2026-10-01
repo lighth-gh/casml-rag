@@ -3,4 +3,5 @@
 page_mode: printed
 page_value_type: integer
 fail_on_truncation: true
+fail_on_unsupported_claims: true
 allow_demo: false

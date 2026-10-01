@@ -1,6 +1,6 @@
 # CASML B0 — từ sách PDF đến CSV, từng bước độc lập
 
-Pipeline R1 có thể chạy từ đầu, dùng **BGE-small-en-v1.5 + BM25 → reciprocal-rank fusion → cross-encoder reranking → Qwen2.5-1.5B-Instruct**. BM25 và dense được hợp nhất theo thứ hạng, không cộng trực tiếp hai loại điểm khác thang đo.
+Pipeline R1 có thể chạy từ đầu, dùng **BGE-small-en-v1.5 + BM25 → reciprocal-rank fusion → cross-encoder reranking → Qwen2.5-1.5B-Instruct**. BM25 và dense được hợp nhất theo thứ hạng, không cộng trực tiếp hai loại điểm khác thang đo. Sau generation, validator kiểm tra số, năm và tên riêng có xuất hiện trong evidence hay không; câu vi phạm được retry một lần và bị chặn export nếu vẫn sai.
 
 **Generation chỉ đọc cache retrieval chứa sẵn câu hỏi, đoạn văn và nguồn.** Đổi prompt, LLM, cách đóng gói context hoặc độ dài đáp án không cần sách PDF, index FAISS hay model embedding trong phiên generation. Có một kiểm tra tự động xóa corpus/index và chặn import retrieval để xác nhận ranh giới này.
 
@@ -91,6 +91,7 @@ python -m casml_b0 generate --retrieval /path/to/retrieval_hybrid_r1 --config co
 | Context | Tối đa 4 chunk; 1.900 token theo tokenizer của LLM; bỏ trùng/overlap lớn |
 | LLM | Qwen2.5-1.5B-Instruct, greedy, tối đa 384 token mới, EOS guard |
 | Token safety | Giới hạn tổng 4.096 token; đếm chat template thật; không âm thầm cắt câu hỏi |
+| Grounding validator | Bắt số, năm và tên riêng vắng mặt trong evidence; retry 1 lần; lỗi còn lại chặn export |
 | References | Lấy từ metadata của những chunk thực sự vào prompt; LLM không tự viết số trang |
 
 Revision của cả hai model được ghim trong YAML. Khi đổi LLM, đổi cả `model_name` và `revision` trong `generate.yaml` cho đúng model mới. Nếu đổi embedding, sửa cấu hình riêng trong `index.yaml`; nếu đổi tokenizer chia chunk, cập nhật `prepare.yaml` tương ứng. Không giữ revision của model cũ.
@@ -136,7 +137,7 @@ PDF/queries mẫu đã có trong `examples/`. `scripts/make_demo.py` có thể t
 
 ## Chạy lại, lỗi và giới hạn
 
-- Mỗi run generation mới tạo `runs/<RUN_NAME>/diagnosis.json` ngay khi khởi tạo run hợp lệ, rồi cập nhật sau mỗi lần sinh và mỗi câu. File chứa cấu hình/prompt, phiên bản môi trường, câu hỏi, đáp án đầy đủ, context/evidence, số token, lịch sử retry và traceback lỗi; có thể gửi riêng file này để chẩn đoán. Các trạng thái gồm `running`, `completed`, `failed`, `interrupted`; summary liệt kê câu lỗi, bị cắt, thiếu evidence và chưa chạy. File vẫn được lưu khi lỗi tải model, lỗi một câu hoặc Ctrl+C; nếu tiến trình bị kill cứng thì chỉ còn snapshot gần nhất, có thể vẫn ghi `running`. Lỗi input/config trước khi khởi tạo run không tạo artifact. Notebook hiển thị link diagnosis cả khi generation báo lỗi. Run hoàn tất đưa checksum file vào manifest. `generation_ready_for_export` chỉ kiểm tra điều kiện generation, không xác nhận chất lượng đáp án hay schema contest. Dùng run mới mặc định `hybrid_r2_qwen15b_t384_eos_guard`; không trộn với checkpoint của run lỗi cũ.
+- Mỗi run generation mới tạo `runs/<RUN_NAME>/diagnosis.json` ngay khi khởi tạo run hợp lệ, rồi cập nhật sau mỗi lần sinh và mỗi câu. File chứa cấu hình/prompt, phiên bản môi trường, câu hỏi, đáp án đầy đủ, context/evidence, số token, lịch sử retry và traceback lỗi; có thể gửi riêng file này để chẩn đoán. Các trạng thái gồm `running`, `completed`, `failed`, `interrupted`; summary liệt kê câu lỗi, bị cắt, thiếu evidence, vi phạm grounding và chưa chạy. File vẫn được lưu khi lỗi tải model, lỗi một câu hoặc Ctrl+C; nếu tiến trình bị kill cứng thì chỉ còn snapshot gần nhất, có thể vẫn ghi `running`. Lỗi input/config trước khi khởi tạo run không tạo artifact. Notebook hiển thị link diagnosis cả khi generation báo lỗi. Run hoàn tất đưa checksum file vào manifest. `generation_ready_for_export` yêu cầu không còn lỗi grounding nhưng validator chỉ kiểm tra token số/năm/tên riêng, không xác minh quan hệ giữa các dữ kiện. Dùng run mới mặc định `hybrid_r3_qwen15b_t384_grounded`; không trộn với checkpoint của run lỗi cũ.
 - Generation lưu mỗi câu ngay sau khi xử lý. Nếu lỗi runtime, chạy lại đúng lệnh để giữ câu thành công và thử lại câu lỗi. Nếu đổi code/config/prompt, tạo run mới.
 - `generate --limit 3` chỉ kiểm tra nhanh 3 câu đầu; dùng một thư mục run riêng. Export sẽ từ chối dùng run thiếu câu với bộ queries đầy đủ.
 - Qwen dùng rõ hai stop token chính thức `<|im_end|>`/`<|endoftext|>` và SDPA. Đáp án tối đa 384 token; nếu chạm trần, generation chỉ thử lại một lần ở cùng ngân sách với prompt ngắn và kiểm soát lặp, không tăng lên 1024/2048 token.

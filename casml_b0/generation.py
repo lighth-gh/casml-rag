@@ -11,6 +11,7 @@ from .contracts import validate_retrieval
 from .context import pack_context
 from .diagnosis import write_diagnosis
 from .llm import make_generator
+from .validation import grounding_retry_instruction, validate_answer_grounding
 
 
 def load_prompts(config, config_path):
@@ -23,7 +24,7 @@ def load_prompts(config, config_path):
     return system, user
 
 
-def generate_answer(backend, payload, config, on_attempt=None):
+def generate_answer(backend, payload, config, on_attempt=None, attempt_reason="initial"):
     """Retry cutoffs with concise instructions and decoding controls, preserving evidence."""
     tokens = int(config["max_new_tokens"])
     ceiling = int(config.get("retry_max_new_tokens", tokens))
@@ -38,7 +39,8 @@ def generate_answer(backend, payload, config, on_attempt=None):
     active_config = dict(config)
     while True:
         answer = backend.generate(active_payload, {**active_config, "max_new_tokens": tokens})
-        attempts.append({"max_new_tokens": tokens, "output_tokens": answer["output_tokens"],
+        attempts.append({"reason": attempt_reason if not attempts else "length_retry",
+                         "max_new_tokens": tokens, "output_tokens": answer["output_tokens"],
                          "finish_reason": answer["finish_reason"],
                          "input_tokens": active_payload["input_tokens"],
                          "repetition_penalty": active_config.get("repetition_penalty", 1.0),
@@ -81,6 +83,47 @@ def generate_answer(backend, payload, config, on_attempt=None):
         tokens = next_tokens
 
 
+def generate_grounded_answer(backend, payload, config, on_attempt=None):
+    """Generate, validate evidence-token support, and retry unsupported claims."""
+    result = generate_answer(backend, payload, config, on_attempt=on_attempt)
+    if not config.get("grounding_validator_enabled", True) or result.get("finish_reason") == "length":
+        return result
+    max_retries = int(config.get("grounding_validator_max_retries", 1))
+    if max_retries < 0:
+        raise ValueError("grounding_validator_max_retries must be non-negative")
+    all_attempts = list(result.get("generation_attempts", []))
+    validation_attempts = []
+    for retry_index in range(max_retries + 1):
+        validation = validate_answer_grounding(result["answer"], payload["evidence"])
+        validation_attempts.append({"retry_index": retry_index, "validation": validation,
+                                    "answer_head": result["answer"][:300],
+                                    "answer_tail": result["answer"][-300:]})
+        result["answer_validation"] = validation
+        result["validation_attempts"] = validation_attempts
+        result["generation_attempts"] = all_attempts
+        if on_attempt is not None:
+            on_attempt(result)
+        if validation["valid"] or retry_index >= max_retries:
+            return result
+        instruction = grounding_retry_instruction(
+            validation, config.get("grounding_validator_retry_instruction", ""))
+        retry_payload = dict(payload)
+        messages = [dict(message) for message in payload["messages"]]
+        messages[-1]["content"] += "\n\n" + instruction
+        retry_payload.update(messages=messages, input_tokens=backend.count_messages(messages))
+        retry_config = dict(config)
+        retry_config["repetition_penalty"] = config.get(
+            "retry_repetition_penalty", config.get("repetition_penalty", 1.0))
+        retry_config["no_repeat_ngram_size"] = config.get(
+            "retry_no_repeat_ngram_size", config.get("no_repeat_ngram_size", 0))
+        print("Unsupported evidence tokens detected; regenerating answer "
+              f"({retry_index + 1}/{max_retries}).", flush=True)
+        retry_result = generate_answer(backend, retry_payload, retry_config,
+                                       attempt_reason="grounding_retry")
+        all_attempts.extend(retry_result.get("generation_attempts", []))
+        result = retry_result
+
+
 def generate(retrieval_dir, config, config_path, out, limit=None):
     retrieval_dir, out = Path(retrieval_dir), Path(out)
     parent = load_artifact(retrieval_dir, "retrieval")
@@ -95,9 +138,11 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
     system, user = load_prompts(config, config_path)
     if int(config.get("retry_max_new_tokens", config["max_new_tokens"])) < int(config["max_new_tokens"]):
         raise ValueError("retry_max_new_tokens must be >= max_new_tokens")
+    if int(config.get("grounding_validator_max_retries", 1)) < 0:
+        raise ValueError("grounding_validator_max_retries must be non-negative")
     effective = {**config, "system_prompt_content": system, "user_prompt_content": user}
     sig = signature("generation", effective, {"retrieval_id": parent["artifact_id"], "selected_queries": digest(rows)},
-                    ["generation.py", "context.py", "llm.py", "diagnosis.py"])
+                    ["generation.py", "context.py", "llm.py", "diagnosis.py", "validation.py"])
     manifest, cached = begin(out, sig, resumable=True)
     if cached:
         return manifest
@@ -151,10 +196,11 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
                 payload = pack_context(row, backend, config, system, user)
                 result.update(payload)
                 if payload["evidence"]:
-                    result.update(generate_answer(backend, payload, config, on_attempt=record_attempt))
+                    result.update(generate_grounded_answer(backend, payload, config, on_attempt=record_attempt))
                     if not result["answer"].strip():
                         raise ValueError("Model produced an empty answer")
-                    result["status"] = "ok"
+                    result["status"] = ("ok" if result.get("answer_validation", {"valid": True})["valid"]
+                                        else "unsupported_claims")
                 else:
                     result.update(status="insufficient_context", answer="The provided excerpts do not contain enough information to answer this question.",
                                   output_tokens=0, finish_reason="no_evidence")
@@ -186,19 +232,31 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
         write_jsonl(out / "predictions.jsonl", ordered)
         report = {"query_count": len(rows), "generated_this_call": len(pending), "resumed": resumed,
                   "errors": [r["query_id"] for r in ordered if r["status"] == "error"],
+                  "unsupported_claims": [r["query_id"] for r in ordered if r["status"] == "unsupported_claims"],
                   "length_limited": [r["query_id"] for r in ordered if r.get("finish_reason") == "length"],
-                  "retried_for_length": [r["query_id"] for r in ordered if len(r.get("generation_attempts", [])) > 1],
+                  "retried_for_length": [r["query_id"] for r in ordered
+                                          if any(a.get("reason") == "length_retry"
+                                                 for a in r.get("generation_attempts", []))],
                   "length_limited_details": [
                       {"query_id": r["query_id"], "question": r["question"],
                        "answer_head": r["answer"][:500], "answer_tail": r["answer"][-500:],
                        "generation_attempts": r.get("generation_attempts", []),
                        "retry_skipped": r.get("retry_skipped")}
                       for r in ordered if r.get("finish_reason") == "length"],
+                  "unsupported_claim_details": [
+                      {"query_id": r["query_id"], "question": r["question"],
+                       "answer": r["answer"], "answer_validation": r.get("answer_validation"),
+                       "validation_attempts": r.get("validation_attempts", [])}
+                      for r in ordered if r["status"] == "unsupported_claims"],
                   "total_generation_seconds": sum(r["seconds"] for r in ordered), "environment": runtime,
                   "note": "Evidence records identify context supplied to the model, not verified factual support for every answer claim."}
         write_json(out / "report.json", report)
         if report["errors"]:
             raise RuntimeError("Some queries failed. Fix the runtime problem and resume before exporting.")
+        if report["unsupported_claims"]:
+            raise RuntimeError("Some answers still contain numbers, years, or proper names absent from their evidence. "
+                               "Inspect unsupported_claim_details, then adjust the prompt, retry policy, or evidence "
+                               "and use a new run directory.")
         save_diagnosis("completed")
         files = ["predictions.jsonl", "report.json", "diagnosis.json"] + [f"checkpoints/{digest(r['query_id'])}.json" for r in rows]
         return finish(out, manifest, files, doc_id=parent["doc_id"], source_pdf=parent["source_pdf"],

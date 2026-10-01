@@ -62,6 +62,8 @@ Không chỉnh text/metadata của evidence tại generation. Muốn đổi các
 
 Schema CSV hỗ trợ: `ID,context,answer,references`. `references` là JSON string có `sections` và `pages`. CSV dùng thư viện chuẩn để quote đúng xuống dòng/dấu phẩy/dấu nháy; exporter đọc lại CSV sau khi ghi.
 
+Trước khi một answer được chấp nhận, grounding validator yêu cầu mọi số, năm và tên riêng nhận diện được phải xuất hiện trong packed evidence. Generation retry một lần bằng prompt sửa lỗi. Vi phạm còn lại có trạng thái `unsupported_claims`, được ghi vào diagnosis/report và chặn export. Đây là kiểm tra token support, không chứng minh quan hệ giữa các dữ kiện là đúng.
+
 References chỉ dùng **packed evidence**, không dùng toàn bộ 20 candidates và không lấy số trang do LLM sinh. CSV context khớp context generation. Với sample chính thức, giữ thứ tự cột/ID của sample và yêu cầu tập ID trùng khớp hoàn toàn.
 
 Page mode chỉ thuộc export. Cấu hình production ánh xạ `printed_page` ngay từ prepare bằng offset `-12`; sửa offset hoặc page map cần một chuỗi artifact mới để metadata evidence nhất quán.

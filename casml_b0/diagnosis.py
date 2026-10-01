@@ -13,9 +13,15 @@ def write_diagnosis(out, manifest, rows, results, *, state, runtime, resumed=0,
                        {"query_id": row["query_id"], "question": row["question"], "status": "pending"})
     issues = {
         "errors": [q["query_id"] for q in queries if q["status"] == "error"],
+        "unsupported_claims": [q["query_id"] for q in queries if q["status"] == "unsupported_claims"],
         "length_limited": [q["query_id"] for q in queries if q.get("finish_reason") == "length"],
         "insufficient_context": [q["query_id"] for q in queries if q["status"] == "insufficient_context"],
-        "retried_for_length": [q["query_id"] for q in queries if len(q.get("generation_attempts", [])) > 1],
+        "retried_for_length": [q["query_id"] for q in queries
+                               if any(a.get("reason") == "length_retry"
+                                      for a in q.get("generation_attempts", []))],
+        "retried_for_grounding": [q["query_id"] for q in queries
+                                  if any(a.get("reason") == "grounding_retry"
+                                         for a in q.get("generation_attempts", []))],
         "unfinished": [q["query_id"] for q in queries if q["status"] in ("pending", "running")],
     }
     write_json(out / "diagnosis.json", {
@@ -27,9 +33,11 @@ def write_diagnosis(out, manifest, rows, results, *, state, runtime, resumed=0,
         "summary": {"query_count": len(rows), "full_retrieval_query_count": full_query_count,
                     "resumed": resumed, **issues,
                     "generation_ready_for_export": state == "completed" and len(rows) == full_query_count
-                    and not issues["errors"] and not issues["length_limited"] and not issues["unfinished"]},
+                    and not issues["errors"] and not issues["unsupported_claims"]
+                    and not issues["length_limited"] and not issues["unfinished"]},
         "queries": queries,
-        "note": "Contains actual prompts, evidence, answers and completed attempts. Generation readiness "
-                "does not validate factual accuracy or submission format. If the process is killed, "
+        "note": "Contains actual prompts, evidence, answers and completed attempts. The grounding validator "
+                "checks token support for numbers, years and proper names; it does not verify relationships, "
+                "general factual accuracy, or submission format. If the process is killed, "
                 "state may remain running; this is the last saved snapshot.",
     })

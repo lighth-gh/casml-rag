@@ -12,6 +12,7 @@ from .artifacts import (atomic_text, begin, digest, file_hash, finish, load_arti
                         read_jsonl, signature, write_json)
 from .contracts import load_queries, unique, validate_evidence
 from .context import render_context
+from .validation import validate_answer_grounding
 
 COLUMNS = ["ID", "context", "answer", "references"]
 
@@ -85,7 +86,7 @@ def export(run, queries_path, config, out, sample=None, pdf=None):
         sample_verified = True
     by_id = {p["query_id"]: p for p in predictions}
     predictions = [by_id[qid] for qid in ids]
-    csv_rows, truncated = [], []
+    csv_rows, truncated, unsupported_claims = [], [], []
     for p in predictions:
         copy = {k: v for k, v in p.items() if k != "record_sha256"}
         if p.get("record_sha256") != digest(copy):
@@ -102,6 +103,9 @@ def export(run, queries_path, config, out, sample=None, pdf=None):
             raise ValueError("CSV context and actual packed evidence differ")
         if p.get("finish_reason") == "length":
             truncated.append(p["query_id"])
+        answer_validation = validate_answer_grounding(p["answer"], p["evidence"])
+        if not answer_validation["valid"]:
+            unsupported_claims.append({"query_id": p["query_id"], "validation": answer_validation})
         refs = references_for(p["evidence"], config)
         csv_rows.append({"ID": p["query_id"], "context": p["context"], "answer": p["answer"],
                          "references": json.dumps(refs, ensure_ascii=False)})
@@ -110,11 +114,14 @@ def export(run, queries_path, config, out, sample=None, pdf=None):
                          "(length_limited_details) and predictions.jsonl. Use concise retry instructions "
                          "and repetition controls in a new generation run, reusing retrieval; "
                          "increasing max_new_tokens alone may repeat the same unfinished answer.")
+    if unsupported_claims and config.get("fail_on_unsupported_claims", True):
+        raise ValueError("Answers contain numbers, years, or proper names absent from their evidence: "
+                         + json.dumps(unsupported_claims[:10], ensure_ascii=False))
     if pdf and file_hash(pdf) != parent["doc_id"]:
         raise ValueError("Audit PDF differs from the indexed PDF (SHA256 mismatch)")
     sig = signature("export", config, {"generation_id": parent["artifact_id"], "queries": digest(queries),
                     "sample": file_hash(sample) if sample else None, "with_pdf": bool(pdf)},
-                    ["exporting.py", "context.py"])
+                    ["exporting.py", "context.py", "validation.py"])
     manifest, cached = begin(out, sig)
     if cached:
         return manifest
@@ -135,6 +142,7 @@ def export(run, queries_path, config, out, sample=None, pdf=None):
                "generator_backend": parent["generator_backend"], "retrieval_backend": parent.get("retrieval_backend"),
                "source_pdf_sha256": parent["doc_id"], "generation_id": parent["artifact_id"],
                "length_limited_queries": truncated,
+               "unsupported_claims": unsupported_claims,
                "approximate_section_evidence": sum(e["section_method"] == "toc_page_approximation" for p in predictions for e in p["evidence"]),
                "unknown_section_evidence": sum(not e["section_path"] for p in predictions for e in p["evidence"]),
                "printed_page_methods": {method: printed_methods.count(method) for method in sorted(set(printed_methods))},
