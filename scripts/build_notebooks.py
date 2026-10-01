@@ -78,6 +78,7 @@ AUTO_PDF = __AUTO_PDF__
 REQUIRE_PDF = __REQUIRE_PDF__
 AUTO_QUERIES = __AUTO_QUERIES__
 AUTO_SAMPLE = __AUTO_SAMPLE__
+REQUIRE_SAMPLE = __REQUIRE_SAMPLE__
 
 import csv, json
 
@@ -160,7 +161,7 @@ def _looks_like_sample(path):
 all_csv = sorted(INPUT_ROOT.rglob("*.csv")) if AUTO_SAMPLE else []
 sample_files = [p for p in all_csv if _looks_like_sample(p)]
 SAMPLE = (_pick("SAMPLE", SAMPLE_OVERRIDE, sample_files,
-                preferred_names=("sample_submission.csv",), required=False)
+                preferred_names=("sample_submission.csv",), required=REQUIRE_SAMPLE)
           if AUTO_SAMPLE or SAMPLE_OVERRIDE else None)
 
 print("Input root:", INPUT_ROOT)
@@ -172,12 +173,12 @@ if AUTO_SAMPLE or SAMPLE_OVERRIDE:
     print("Sample:", SAMPLE)
 
 PAGE_MAP = None  # Đặt Path đến page_map_override.csv sau khi kiểm tra số trang/mục.
-CORPUS = WORK / "artifacts/corpus_printed_v2"
-INDEX = WORK / "artifacts/index_bge_v2"
-RETRIEVAL = WORK / "artifacts/retrieval_hybrid_r1"
-GEN_MAX_NEW_TOKENS = 512
-GEN_RETRY_MAX_NEW_TOKENS = 2048
-RUN_NAME = f"hybrid_r1_qwen15b_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}"
+CORPUS = WORK / "artifacts/corpus_printed_v3"
+INDEX = WORK / "artifacts/index_bge_v3"
+RETRIEVAL = WORK / "artifacts/retrieval_hybrid_r2"
+GEN_MAX_NEW_TOKENS = 384
+GEN_RETRY_MAX_NEW_TOKENS = 384
+RUN_NAME = f"hybrid_r2_qwen15b_t{GEN_MAX_NEW_TOKENS}_eos_guard"
 RUN = WORK / "runs" / RUN_NAME
 OUTPUT = WORK / "outputs" / RUN_NAME
 BASE_GEN_CONFIG = ROOT / "configs/generate.yaml"
@@ -186,12 +187,14 @@ GEN_CONFIG = WORK / "configs" / f"generate_qwen15b_t{GEN_MAX_NEW_TOKENS}_r{GEN_R
 '''
 
 
-def paths(auto_pdf=False, require_pdf=False, auto_queries=False, auto_sample=False):
+def paths(auto_pdf=False, require_pdf=False, auto_queries=False, auto_sample=False,
+          require_sample=False):
     values = {
         "__AUTO_PDF__": auto_pdf,
         "__REQUIRE_PDF__": require_pdf,
         "__AUTO_QUERIES__": auto_queries,
         "__AUTO_SAMPLE__": auto_sample,
+        "__REQUIRE_SAMPLE__": require_sample,
     }
     source = PATHS
     for marker, value in values.items():
@@ -204,13 +207,18 @@ import yaml
 
 if ("retry_instruction" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
         "write_diagnosis" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
+        "abort_after_consecutive_length_limited" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
         "no_repeat_ngram_size" not in (ROOT / "casml_b0/llm.py").read_text(encoding="utf-8") or
+        "eos_token_ids" not in (ROOT / "casml_b0/llm.py").read_text(encoding="utf-8") or
         "reciprocal_rank_fusion" not in (ROOT / "casml_b0/retrieval.py").read_text(encoding="utf-8")):
-    raise RuntimeError("Mã nguồn đang dùng chưa có diagnosis hoặc retry với prompt ngắn và chống lặp. Cập nhật repo chứa bản sửa "
+    raise RuntimeError("Mã nguồn đang dùng chưa có diagnosis, EOS guard hoặc fail-fast chống vòng lặp. Cập nhật repo chứa bản sửa "
                        "(UPDATE_REPO = True), hoặc đặt ROOT_OVERRIDE tới bản project mới rồi chạy lại setup.")
 generation_config = yaml.safe_load(BASE_GEN_CONFIG.read_text(encoding="utf-8"))
 generation_config["max_new_tokens"] = GEN_MAX_NEW_TOKENS
 generation_config["retry_max_new_tokens"] = GEN_RETRY_MAX_NEW_TOKENS
+generation_config.setdefault("eos_token_ids", [151645, 151643])
+generation_config.setdefault("pad_token_id", 151643)
+generation_config.setdefault("abort_after_consecutive_length_limited", 1)
 generation_config.setdefault("retry_repetition_penalty", 1.15)
 generation_config.setdefault("retry_no_repeat_ngram_size", 8)
 generation_config.setdefault("retry_instruction", "Give a complete, concise answer in at most 180 words. "
@@ -229,6 +237,8 @@ print("max_new_tokens:", generation_config["max_new_tokens"])
 print("retry_max_new_tokens:", generation_config["retry_max_new_tokens"])
 print("retry_repetition_penalty:", generation_config["retry_repetition_penalty"])
 print("retry_no_repeat_ngram_size:", generation_config["retry_no_repeat_ngram_size"])
+print("eos_token_ids:", generation_config["eos_token_ids"])
+print("abort_after_consecutive_length_limited:", generation_config["abort_after_consecutive_length_limited"])
 print("Run:", RUN)
 '''
 
@@ -298,7 +308,8 @@ def main():
                   'Chỉnh `ROOT_OVERRIDE`, `INPUT_ROOT_OVERRIDE`, `PDF_OVERRIDE`, `QUERIES_OVERRIDE` và '
                   '`SAMPLE_OVERRIDE` tại đây. Các section phía dưới dùng chung những đường dẫn này.')
     full = [md(intro), md(setup_note), code(SETUP),
-            paths(auto_pdf=True, require_pdf=True, auto_queries=True, auto_sample=True),
+            paths(auto_pdf=True, require_pdf=True, auto_queries=True, auto_sample=True,
+                  require_sample=True),
             install("requirements.txt"), code(GENERATION_SETUP)]
     guidance = {
         1: ('PDF → chunks + printed-page map',

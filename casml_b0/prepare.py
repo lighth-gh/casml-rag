@@ -33,7 +33,7 @@ class HFOffsets:
 
     def offsets(self, text):
         values = self.tokenizer(text, add_special_tokens=False, truncation=False,
-                                return_offsets_mapping=True)["offset_mapping"]
+                                return_offsets_mapping=True, verbose=False)["offset_mapping"]
         return [(a, b) for a, b in values if b > a]
 
 
@@ -78,7 +78,7 @@ def read_overrides(path, page_count):
 
 
 def prepare(pdf, config, out, page_map_override=None):
-    import fitz
+    import pymupdf as fitz
     pdf, out = Path(pdf), Path(out)
     doc_id = file_hash(pdf)
     sig = signature("corpus", config, {"pdf_sha256": doc_id,

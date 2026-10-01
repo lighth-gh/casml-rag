@@ -14,6 +14,8 @@ class HFDecoding(unittest.TestCase):
         backend.torch = SimpleNamespace(inference_mode=nullcontext)
         backend.tokenizer = MagicMock()
         backend.tokenizer.pad_token_id = 2
+        backend.pad_token_id = 2
+        backend.eos_token_ids = eos if isinstance(eos, list) else [eos]
         backend.tokenizer.return_value.to.return_value = {"input_ids": SimpleNamespace(shape=(1, 10))}
         backend.tokenizer.decode.return_value = "Answer."
         backend.model = MagicMock()
@@ -28,6 +30,8 @@ class HFDecoding(unittest.TestCase):
         kwargs = backend.model.generate.call_args.kwargs
         self.assertEqual(kwargs["repetition_penalty"], 1.15)
         self.assertEqual(kwargs["no_repeat_ngram_size"], 8)
+        self.assertEqual(kwargs["eos_token_id"], [2, 3])
+        self.assertEqual(kwargs["pad_token_id"], 2)
         self.assertFalse(kwargs["do_sample"])
         self.assertEqual(result["finish_reason"], "eos")
 

@@ -4,14 +4,14 @@ revision: 989aa7980e4cf806f80c7fef2b1adb7bc71aa306
 local_files_only: false
 device: auto
 dtype: auto
-attn_implementation: eager
+attn_implementation: sdpa
 seed: 42
 context_top_k: 4
 context_token_budget: 1900
 context_window: 4096
-max_new_tokens: 512
-# Retry only cut-off answers; capped by remaining context-window space.
-retry_max_new_tokens: 2048
+max_new_tokens: 384
+# Do not turn a non-terminating answer into a 2048-token GPU loop.
+retry_max_new_tokens: 384
 # Only retries use these controls; the initial answer retains the base settings.
 retry_repetition_penalty: 1.15
 retry_no_repeat_ngram_size: 8
@@ -23,6 +23,12 @@ duplicate_overlap: 0.75
 do_sample: false
 repetition_penalty: 1.05
 no_repeat_ngram_size: 6
+# Qwen2.5-Instruct officially stops on <|im_end|> or <|endoftext|>.
+eos_token_ids: [151645, 151643]
+pad_token_id: 151643
+# A healthy answer should stop before 384 tokens. Abort the run on the first
+# cutoff so a bad model/runtime cannot waste an entire Kaggle GPU session.
+abort_after_consecutive_length_limited: 1
 fail_fast: true
 system_prompt_file: ../prompts/system.txt
 user_prompt_file: ../prompts/user.txt

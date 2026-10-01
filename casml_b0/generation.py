@@ -123,13 +123,18 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
                 if checksum != digest(previous) or previous.get("run_id") != manifest["artifact_id"] or previous.get("query_signature") != digest(row):
                     raise ValueError(f"Invalid checkpoint for query {row['query_id']}")
                 previous["record_sha256"] = checksum
-            if previous and previous["status"] in ("ok", "insufficient_context"):
+            if (previous and previous["status"] in ("ok", "insufficient_context")
+                    and previous.get("finish_reason") != "length"):
                 results[row["query_id"]] = previous
             else:
                 pending.append(row)
         resumed = len(results)
         backend = make_generator(config) if pending else None
         save_diagnosis()
+        consecutive_length_limited = 0
+        abort_after_length = int(config.get("abort_after_consecutive_length_limited", 0))
+        if abort_after_length < 0:
+            raise ValueError("abort_after_consecutive_length_limited must be non-negative")
         for row in pending:
             started = time.perf_counter()
             result = {"schema": SCHEMA, "run_id": manifest["artifact_id"], "query_signature": digest(row),
@@ -166,6 +171,17 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
             if result["status"] == "error" and config.get("fail_fast", True):
                 write_jsonl(out / "predictions.jsonl", [results[q["query_id"]] for q in rows if q["query_id"] in results])
                 raise RuntimeError(f"Query {row['query_id']} failed: {result['error']}. Checkpoint saved; rerun to resume.")
+            if result.get("finish_reason") == "length":
+                consecutive_length_limited += 1
+            else:
+                consecutive_length_limited = 0
+            if abort_after_length and consecutive_length_limited >= abort_after_length:
+                write_jsonl(out / "predictions.jsonl", [results[q["query_id"]] for q in rows if q["query_id"] in results])
+                raise RuntimeError(
+                    f"Aborting after {consecutive_length_limited} consecutive length-limited answer(s); "
+                    "inspect diagnosis.json before spending GPU time on the remaining queries. "
+                    "The length-limited checkpoint will be regenerated on the next run."
+                )
         ordered = [results[row["query_id"]] for row in rows]
         write_jsonl(out / "predictions.jsonl", ordered)
         report = {"query_count": len(rows), "generated_this_call": len(pending), "resumed": resumed,

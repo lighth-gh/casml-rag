@@ -16,4 +16,5 @@ reranker_model_name: cross-encoder/ms-marco-MiniLM-L-12-v2
 reranker_revision: 7b0235231ca2674cb8ca8f022859a6eba2b1c968
 reranker_device: auto
 reranker_batch_size: 16
+reranker_max_length: 512
 local_files_only: false

@@ -14,7 +14,7 @@ B0 trước đây đã chạy đủ 5 bước trên CPU với PDF mẫu 4 trang 
 
 **Chất lượng chưa phải tiêu chí đã đạt:** Q001/Q002 cho đáp án có nội dung phù hợp với đoạn mẫu. Q003 chỉ trả lời “independent variable”, thiếu định nghĩa mặc dù nguồn Research có định nghĩa. Giữ nguyên kết quả này làm mốc B0; sau này sửa prompt/model tại generation trên cùng cache để đo cải thiện. Không tự sửa tay đáp án trước khi đóng gói.
 
-## 12 kiểm tra tự động
+## Kiểm tra tự động
 
 1. PDF → chunks → cache → generation → CSV; span text khớp trang.
 2. Xóa corpus/index và chặn import FAISS/SentenceTransformer/retrieval: generation vẫn chạy bằng backend demo.
@@ -28,13 +28,16 @@ B0 trước đây đã chạy đủ 5 bước trên CPU với PDF mẫu 4 trang 
 10. Giữ thứ tự ID của sample; từ chối PDF audit khác sách gốc.
 11. Backend demo không được xuất nhầm bằng cấu hình B0 thật.
 12. ID trùng sau chuẩn hóa bị từ chối.
+13. Notebook production dừng trước pipeline nếu thiếu sample chính thức.
+14. Generation production dừng ở câu bị cắt đầu tiên và không resume nhầm checkpoint đó.
+15. Qwen nhận EOS/pad token rõ ràng; reranker giới hạn input ở 512 token.
 
-12/12 đã qua. Các kiểm tra này dùng backend nhẹ để cô lập lỗi hợp đồng, không dùng điểm chất lượng của model để xác nhận đúng/sai.
+Các kiểm tra dùng backend nhẹ để cô lập lỗi hợp đồng, không dùng điểm chất lượng của model để xác nhận đúng/sai.
 
 ## Kiểm tra đóng gói
 
 - Cài project bằng `pip install --no-deps -e .` thành công.
-- Sáu notebook hợp lệ theo nbformat và các code cell biên dịch được. Luồng CLI đã chạy thực tế; chưa chạy notebook trong phiên Kaggle của người dùng.
+- Notebook end-to-end hợp lệ theo nbformat và các code cell biên dịch được. Luồng CLI đã chạy thực tế; chưa chạy bản sửa Qwen trên phiên Kaggle của người dùng.
 - PDF mẫu đã render và kiểm tra trực quan; có nhúng font để tránh lỗi hiển thị.
 - Gói không chứa model weights, API key hoặc dữ liệu sách của cuộc thi.
 

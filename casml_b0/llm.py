@@ -51,8 +51,25 @@ class HFGenerator:
         self.model = AutoModelForCausalLM.from_pretrained(config["model_name"],
                         torch_dtype=getattr(torch, precision), **model_options).to(self.device).eval()
         self.context_window = int(getattr(self.model.config, "max_position_embeddings", 4096))
-        if self.tokenizer.pad_token_id is None:
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+        configured_eos = config.get("eos_token_ids")
+        if configured_eos is None:
+            configured_eos = self.model.generation_config.eos_token_id
+        if isinstance(configured_eos, int):
+            configured_eos = [configured_eos]
+        self.eos_token_ids = [int(value) for value in configured_eos or []]
+        if not self.eos_token_ids:
+            raise ValueError("No EOS token configured; generation could run until max_new_tokens")
+        vocab_size = int(getattr(self.model.config, "vocab_size", len(self.tokenizer)))
+        if any(value < 0 or value >= vocab_size for value in self.eos_token_ids):
+            raise ValueError(f"EOS token IDs outside model vocabulary: {self.eos_token_ids}")
+        configured_pad = config.get("pad_token_id", self.tokenizer.pad_token_id)
+        if configured_pad is None:
+            configured_pad = self.eos_token_ids[-1]
+        self.pad_token_id = int(configured_pad)
+        self.tokenizer.pad_token_id = self.pad_token_id
+        self.model.generation_config.eos_token_id = self.eos_token_ids
+        self.model.generation_config.pad_token_id = self.pad_token_id
+        print(f"Generation stop tokens: eos={self.eos_token_ids}, pad={self.pad_token_id}", flush=True)
         torch.manual_seed(int(config.get("seed", 42)))
 
     def count_text(self, text):
@@ -69,7 +86,7 @@ class HFGenerator:
         if input_length != payload["input_tokens"]:
             raise ValueError("Chat-template token count mismatch; refusing implicit truncation")
         kwargs = {"max_new_tokens": int(config["max_new_tokens"]), "do_sample": bool(config.get("do_sample", False)),
-                  "pad_token_id": self.tokenizer.pad_token_id,
+                  "pad_token_id": self.pad_token_id, "eos_token_id": self.eos_token_ids,
                   "repetition_penalty": float(config.get("repetition_penalty", 1.0)),
                   "no_repeat_ngram_size": int(config.get("no_repeat_ngram_size", 0))}
         if kwargs["do_sample"]:
@@ -80,8 +97,7 @@ class HFGenerator:
         with self.torch.inference_mode():
             output = self.model.generate(**inputs, **kwargs)[0, input_length:]
         answer = self.tokenizer.decode(output, skip_special_tokens=True).strip()
-        eos = self.model.generation_config.eos_token_id
-        eos = set(eos if isinstance(eos, list) else [eos])
+        eos = set(self.eos_token_ids)
         reached_limit = len(output) >= kwargs["max_new_tokens"] and int(output[-1]) not in eos
         return {"answer": answer, "output_tokens": len(output),
                 "finish_reason": "length" if reached_limit else "eos"}

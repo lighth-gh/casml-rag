@@ -2,7 +2,7 @@
 from pathlib import Path
 import csv
 import json
-import fitz
+import pymupdf as fitz
 
 
 def create_demo(destination):

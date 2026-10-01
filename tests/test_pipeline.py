@@ -239,6 +239,37 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
         with self.assertRaisesRegex(ValueError, "Length-limited answers"):
             export(self.base / "cutoff", self.data / "queries.json", self.exp, self.base / "bad_cutoff")
 
+    def test_production_guard_aborts_and_regenerates_length_limited_checkpoint(self):
+        class NeverEnds(ExtractiveDemoGenerator):
+            def __init__(self):
+                self.calls = 0
+
+            def generate(self, payload, config):
+                self.calls += 1
+                return {"answer": "unfinished", "output_tokens": config["max_new_tokens"],
+                        "finish_reason": "length"}
+
+        cfg = {**self.gen, "max_new_tokens": 100, "retry_max_new_tokens": 100,
+               "retry_repetition_penalty": 1.1,
+               "abort_after_consecutive_length_limited": 1}
+        run = self.base / "length_guard"
+        first = NeverEnds()
+        with patch("casml_b0.generation.make_generator", return_value=first):
+            with self.assertRaisesRegex(RuntimeError, "Aborting after 1 consecutive"):
+                generate(self.cache, cfg, self.config_path, run)
+        self.assertEqual(first.calls, 2)
+        diagnosis = read_json(run / "diagnosis.json")
+        self.assertEqual(diagnosis["state"], "failed")
+        self.assertEqual(diagnosis["summary"]["length_limited"], ["Q001"])
+        self.assertEqual(diagnosis["summary"]["unfinished"], ["Q002", "Q003"])
+
+        second = NeverEnds()
+        with patch("casml_b0.generation.make_generator", return_value=second):
+            with self.assertRaisesRegex(RuntimeError, "Aborting after 1 consecutive"):
+                generate(self.cache, cfg, self.config_path, run)
+        self.assertEqual(second.calls, 2)
+        self.assertEqual(read_json(run / "diagnosis.json")["summary"]["resumed"], 0)
+
     def test_concise_retry_changes_decoding_and_records_actual_prompt(self):
         class RepeatsUntilPolicyChanges(ExtractiveDemoGenerator):
             def __init__(self):
@@ -255,7 +286,7 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
 
         production = load_config(ROOT / "configs/generate.yaml")
         cfg = {**self.gen, **{k: v for k, v in production.items() if k.startswith("retry_")},
-               "max_new_tokens": 512, "context_window": 4096}
+               "max_new_tokens": 512, "retry_max_new_tokens": 2048, "context_window": 4096}
         backend = RepeatsUntilPolicyChanges()
         with patch("casml_b0.generation.make_generator", return_value=backend):
             generate(self.cache, cfg, self.config_path, self.base / "concise")

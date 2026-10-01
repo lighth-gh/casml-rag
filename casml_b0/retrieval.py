@@ -101,6 +101,7 @@ def _make_reranker(config):
         config["reranker_model_name"],
         revision=config.get("reranker_revision", "main"),
         device=device,
+        max_length=int(config.get("reranker_max_length", 512)),
         local_files_only=config.get("local_files_only", False),
         trust_remote_code=False,
     )
