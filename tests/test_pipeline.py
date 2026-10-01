@@ -408,11 +408,16 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
         with self.assertRaisesRegex(ValueError, "SHA256"):
             export(self.base / "ordered", self.data / "queries.json", self.exp, self.base / "wrongpdf", pdf=sample)
 
-    def test_production_export_requires_official_sample(self):
+    def test_production_export_uses_documented_schema_without_sample(self):
         generate(self.cache, self.gen, self.config_path, self.base / "sample_gate")
-        with self.assertRaisesRegex(ValueError, "Official sample_submission.csv"):
-            export(self.base / "sample_gate", self.data / "queries.json",
-                   {**self.exp, "require_sample": True}, self.base / "missing_sample")
+        export(self.base / "sample_gate", self.data / "queries.json",
+               self.exp, self.base / "missing_sample")
+        rows = csv_rows(self.base / "missing_sample/submission.csv")
+        self.assertEqual(list(rows[0]), ["ID", "context", "answer", "references"])
+        self.assertEqual([r["ID"] for r in rows], ["Q001", "Q002", "Q003"])
+        validation = read_json(self.base / "missing_sample/validation.json")
+        self.assertTrue(validation["schema_contract_verified"])
+        self.assertFalse(validation["official_sample_verified"])
 
     def test_demo_cannot_accidentally_be_exported_as_real_b0(self):
         generate(self.cache, self.gen, self.config_path, self.base / "demo")

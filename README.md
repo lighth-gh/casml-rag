@@ -4,7 +4,7 @@ Pipeline R1 có thể chạy từ đầu, dùng **BGE-small-en-v1.5 + BM25 → r
 
 **Generation chỉ đọc cache retrieval chứa sẵn câu hỏi, đoạn văn và nguồn.** Đổi prompt, LLM, cách đóng gói context hoặc độ dài đáp án không cần sách PDF, index FAISS hay model embedding trong phiên generation. Có một kiểm tra tự động xóa corpus/index và chặn import retrieval để xác nhận ranh giới này.
 
-Đây là pipeline tham khảo notebook CASML công khai, không phải bản tái lập nguyên trạng giải nhất/nhì. PDF trong `examples/` là tài liệu tổng hợp ngắn để kiểm tra kỹ thuật, không phải sách cuộc thi. Metric private không thể tái tạo cục bộ; sample chính thức vẫn phải được cung cấp cho mỗi lần export production.
+Đây là pipeline tham khảo notebook CASML công khai, không phải bản tái lập nguyên trạng giải nhất/nhì. PDF trong `examples/` là tài liệu tổng hợp ngắn để kiểm tra kỹ thuật, không phải sách cuộc thi. Metric private không thể tái tạo cục bộ. Submission được xuất trực tiếp theo hợp đồng `ID,context,answer,references`; sample CSV là tùy chọn.
 
 ## Bắt đầu ở đâu?
 
@@ -27,7 +27,7 @@ Python 3.10 trở lên. Chạy các lệnh từ thư mục có `pyproject.toml`.
 python -m pip install -r requirements.txt
 ```
 
-Chuẩn bị `data/book.pdf`, `data/queries.json` và **sample submission chính thức**. Export production sẽ chặn nếu thiếu sample. `queries.json` nhận danh sách hoặc đối tượng có khóa `queries`:
+Chuẩn bị `data/book.pdf` và `data/queries.json`. `queries.json` nhận danh sách hoặc đối tượng có khóa `queries`:
 
 ```json
 [
@@ -42,10 +42,10 @@ python -m casml_b0 prepare --pdf data/book.pdf --config configs/prepare.yaml --o
 python -m casml_b0 index --corpus artifacts/corpus_printed_v2 --config configs/index.yaml --out artifacts/index_bge_v2
 python -m casml_b0 retrieve --index artifacts/index_bge_v2 --queries data/queries.json --config configs/retrieve.yaml --out artifacts/retrieval_hybrid_r1
 python -m casml_b0 generate --retrieval artifacts/retrieval_hybrid_r1 --config configs/generate.yaml --out runs/hybrid_r1_qwen15b
-python -m casml_b0 export --run runs/hybrid_r1_qwen15b --queries data/queries.json --config configs/export.yaml --sample data/sample_submission.csv --pdf data/book.pdf --out outputs/hybrid_r1_qwen15b
+python -m casml_b0 export --run runs/hybrid_r1_qwen15b --queries data/queries.json --config configs/export.yaml --pdf data/book.pdf --out outputs/hybrid_r1_qwen15b
 ```
 
-`--sample` là bắt buộc với `configs/export.yaml`: bộ xuất đối chiếu chính xác thứ tự cột và toàn bộ ID trước khi tạo submission. `--pdf` dùng để xác minh SHA256 và đính kèm sách cạnh báo cáo audit. Export và generation không cần mở index.
+Exporter luôn ghi đúng thứ tự cột `ID,context,answer,references`, yêu cầu toàn bộ ID khớp queries, rồi đọc lại CSV và parse từng JSON references. Nếu có sample để đối chiếu, có thể truyền thêm `--sample`; đây là đầu vào tùy chọn. `--pdf` dùng để xác minh SHA256 và đính kèm sách cạnh báo cáo audit. Export và generation không cần mở index.
 
 Kết quả:
 
@@ -116,8 +116,8 @@ Chạy prepare với `--page-map-override data/page_map_override.csv` và một 
 1. Import/upload `notebooks/CASML_R1_end_to_end.ipynb` vào Kaggle; thêm dữ liệu CASML chính thức vào Input.
 2. Bật Internet và GPU nếu có. Cell setup tự clone `https://github.com/lighth-gh/casml-rag.git` vào `/kaggle/working/casml-rag`; Internet cũng cần cho lần tải model đầu.
 3. Khi chạy lại notebook, mã đã clone được dùng lại. Đặt `UPDATE_REPO = True` nếu muốn `git pull --ff-only`, hoặc đặt `ROOT_OVERRIDE` nếu muốn dùng một bản project khác.
-4. Cell cấu hình tự dò PDF sách, `queries.json` và `sample_submission.csv` trong `/kaggle/input`. Nếu thiếu sample chính thức, notebook vẫn chạy đến hết generation nhưng bỏ qua export; sau đó gắn sample, đặt `SAMPLE_OVERRIDE` và chỉ chạy lại section 0 cùng section 5. Nếu có nhiều ứng viên, đặt override tới file chính xác. Notebook không tự chọn PDF có tên dạng overview/instructions/rules/guide.
-5. Chạy lần lượt, đọc báo cáo prepare/audit rồi đối chiếu sample và quy ước references chính thức.
+4. Cell cấu hình tự dò PDF sách, `queries.json` và sample CSV tùy chọn trong `/kaggle/input`. Nếu không có sample, notebook vẫn export theo schema đã công bố. Nếu có nhiều ứng viên, đặt override tới file chính xác. Notebook không tự chọn PDF có tên dạng overview/instructions/rules/guide.
+5. Chạy lần lượt, đọc báo cáo prepare/audit rồi kiểm tra quy ước references trước khi nộp.
 6. Lưu thư mục cache retrieval làm output/dataset riêng. Với thử nghiệm LLM mới, trỏ `RETRIEVAL` đến cache đó rồi chạy lại section 0, 4 và 5 trong cùng notebook.
 
 Notebook chạy mỗi bước bằng process riêng để giải phóng model sau khi bước kết thúc. Nó không ghi vào `/kaggle/input`. Nếu làm hoàn toàn offline, chuẩn bị model snapshot trước và sửa YAML dùng đường dẫn local với `local_files_only: true`.

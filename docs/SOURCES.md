@@ -9,7 +9,7 @@
 
 R1 giữ metadata xuyên suốt, retrieval riêng, context có ngân sách, model instruction và CSV; đồng thời tích hợp BGE-small + BM25, weighted reciprocal-rank fusion, `cross-encoder/ms-marco-MiniLM-L-12-v2` và Qwen2.5-1.5B-Instruct. Không tuyên bố tái lập điểm số của notebook công khai hay leaderboard private.
 
-Các notebook công khai dùng schema `ID,context,answer,references`, với references gồm `sections` và `pages`. Một notebook ánh xạ TOC từ PDF sang số trang sách bằng offset `-12`; đối chiếu corpus thực tế cũng cho thấy PDF page 20 là textbook page 8. R1 dùng quy ước này nhưng vẫn bắt buộc sample chính thức khi export để xác minh cột và ID. Metric private không thể tái tạo cục bộ.
+Các notebook công khai và yêu cầu cuộc thi dùng schema `ID,context,answer,references`, với references gồm `sections` và `pages`. Một notebook ánh xạ TOC từ PDF sang số trang sách bằng offset `-12`; đối chiếu corpus thực tế cũng cho thấy PDF page 20 là textbook page 8. R1 xuất trực tiếp theo schema đã công bố, kiểm tra đủ ID và parse lại CSV/JSON mà không yêu cầu sample. Metric private không thể tái tạo cục bộ.
 
 ## Model và thư viện
 

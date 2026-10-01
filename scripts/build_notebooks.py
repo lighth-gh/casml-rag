@@ -172,8 +172,8 @@ if AUTO_QUERIES or QUERIES_OVERRIDE:
 if AUTO_SAMPLE or SAMPLE_OVERRIDE:
     print("Sample:", SAMPLE)
     if SAMPLE is None:
-        print("WARNING: Official sample_submission.csv was not found. "
-              "Prepare/retrieve/generate will continue; export will be skipped.")
+        print("INFO: No sample_submission.csv was found. Export will use the documented "
+              "ID, context, answer, references schema and query order.")
 
 PAGE_MAP = None  # Đặt Path đến page_map_override.csv sau khi kiểm tra số trang/mục.
 CORPUS = WORK / "artifacts/corpus_printed_v3"
@@ -186,6 +186,8 @@ RUN = WORK / "runs" / RUN_NAME
 OUTPUT = WORK / "outputs" / RUN_NAME
 BASE_GEN_CONFIG = ROOT / "configs/generate.yaml"
 GEN_CONFIG = WORK / "configs" / f"generate_qwen15b_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}.yaml"
+BASE_EXPORT_CONFIG = ROOT / "configs/export.yaml"
+EXPORT_CONFIG = WORK / "configs/export_documented_schema.yaml"
 # Khi đổi prompt/model/config, dùng RUN và OUTPUT mới.
 '''
 
@@ -235,6 +237,11 @@ for key in ("system_prompt_file", "user_prompt_file"):
     generation_config[key] = str(prompt_path)
 GEN_CONFIG.parent.mkdir(parents=True, exist_ok=True)
 GEN_CONFIG.write_text(yaml.safe_dump(generation_config, sort_keys=False), encoding="utf-8")
+
+export_config = yaml.safe_load(BASE_EXPORT_CONFIG.read_text(encoding="utf-8"))
+export_config.pop("require_sample", None)
+export_config["page_value_type"] = "integer"
+EXPORT_CONFIG.write_text(yaml.safe_dump(export_config, sort_keys=False), encoding="utf-8")
 print("Generation config:", GEN_CONFIG)
 print("max_new_tokens:", generation_config["max_new_tokens"])
 print("retry_max_new_tokens:", generation_config["retry_max_new_tokens"])
@@ -242,6 +249,7 @@ print("retry_repetition_penalty:", generation_config["retry_repetition_penalty"]
 print("retry_no_repeat_ngram_size:", generation_config["retry_no_repeat_ngram_size"])
 print("eos_token_ids:", generation_config["eos_token_ids"])
 print("abort_after_consecutive_length_limited:", generation_config["abort_after_consecutive_length_limited"])
+print("Export config:", EXPORT_CONFIG)
 print("Run:", RUN)
 '''
 
@@ -270,19 +278,16 @@ finally:
         display(FileLink(str(diagnosis_path)))
 print((RUN / "report.json").read_text())
 '''),
-5: ('export', 'requirements-export.txt', '''if SAMPLE is None:
-    print("SKIPPED EXPORT: official sample_submission.csv is missing. "
-          "Attach it, set SAMPLE_OVERRIDE, then rerun section 0 and section 5 only.")
-else:
-    args = ["export", "--run", RUN, "--queries", QUERIES, "--config", ROOT / "configs/export.yaml", "--out", OUTPUT]
+5: ('export', 'requirements-export.txt', '''args = ["export", "--run", RUN, "--queries", QUERIES, "--config", EXPORT_CONFIG, "--out", OUTPUT]
+if SAMPLE is not None:
     args += ["--sample", SAMPLE]
-    if PDF is not None:
-        args += ["--pdf", PDF]  # Đặt PDF = None nếu chỉ có run generation.
-    stage(*args)
-    print((OUTPUT / "validation.json").read_text())
-    from IPython.display import FileLink, display
-    display(FileLink(str(OUTPUT / "submission.csv")))
-    display(FileLink(str(OUTPUT / "audit.html")))
+if PDF is not None:
+    args += ["--pdf", PDF]  # Đặt PDF = None nếu chỉ có run generation.
+stage(*args)
+print((OUTPUT / "validation.json").read_text())
+from IPython.display import FileLink, display
+display(FileLink(str(OUTPUT / "submission.csv")))
+display(FileLink(str(OUTPUT / "audit.html")))
 '''),
 }
 
@@ -308,8 +313,9 @@ def main():
              'để có thể chỉnh cấu hình và chạy lại từ đúng điểm cần thiết.\n\n'
              'Bật Internet để clone GitHub và tải model lần đầu; bật GPU nếu có. Sửa đường dẫn dữ liệu '
              'ở section 0. Notebook không tự nộp submission. Mỗi stage chạy trong process riêng để giải '
-             'phóng bộ nhớ sau khi hoàn tất. Nếu chưa có sample_submission.csv chính thức, notebook vẫn tạo '
-             'run generation nhưng bỏ qua export. Trước khi nộp, gắn sample và kiểm tra page mapping trong validation/audit.')
+             'phóng bộ nhớ sau khi hoàn tất. Notebook luôn export theo schema '
+             '`ID,context,answer,references`; sample_submission.csv chỉ là đầu vào tùy chọn. '
+             'Trước khi nộp, kiểm tra page mapping trong validation/audit.')
     setup_note = ('## 0. Setup + input paths + runtime config\n\n'
                   'Chỉnh `ROOT_OVERRIDE`, `INPUT_ROOT_OVERRIDE`, `PDF_OVERRIDE`, `QUERIES_OVERRIDE` và '
                   '`SAMPLE_OVERRIDE` tại đây. Các section phía dưới dùng chung những đường dẫn này.')
@@ -327,7 +333,7 @@ def main():
         4: ('Qwen 1.5B generation',
             'Chỉnh `configs/generate.yaml` hoặc các override ở section 0, rồi chạy lại section 4–5.'),
         5: ('Validate + export submission',
-            'Dùng sample_submission.csv chính thức. Kiểm tra `validation.json` và `audit.html` trước khi nộp.'),
+            'Luôn tạo `submission.csv`; sample_submission.csv là tùy chọn. Kiểm tra `validation.json` và `audit.html` trước khi nộp.'),
     }
     for number, (name, requirements, command) in STEPS.items():
         heading, note = guidance[number]

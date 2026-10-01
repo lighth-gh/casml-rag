@@ -1,8 +1,6 @@
 # CASML references use textbook page numbers. The competition PDF has 12 pages
 # of front matter, mapped during prepare with printed_page_offset: -12.
 page_mode: printed
-page_value_type: string
+page_value_type: integer
 fail_on_truncation: true
 allow_demo: false
-# A final competition export must be checked against the official sample file.
-require_sample: true

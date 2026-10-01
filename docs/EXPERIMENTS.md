@@ -37,7 +37,7 @@ Thử đổi `context_top_k` là thí nghiệm context packing, không phải so
 
 **Generation:** cố định retrieval cache; đánh giá đúng ý, đầy đủ và mọi khẳng định có được context hỗ trợ không. Nếu evidence đã có câu trả lời nhưng đáp án sai, xử lý generation. Nếu cache thiếu nguồn đúng, xử lý retrieval.
 
-**Submission:** kiểm tra ID/schema/references, sample chính thức và quy ước đánh số trang. Validation kỹ thuật có sẵn không thay thế metric chính thức.
+**Submission:** kiểm tra ID/schema/references và quy ước đánh số trang. Exporter dùng schema công bố trực tiếp; sample CSV chỉ là đối chiếu tùy chọn. Validation kỹ thuật có sẵn không thay thế metric chính thức.
 
 ## Lộ trình sau B0
 

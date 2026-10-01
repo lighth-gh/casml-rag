@@ -83,7 +83,12 @@ class NotebookInputDiscovery(unittest.TestCase):
         self.assertIn('GEN_RETRY_MAX_NEW_TOKENS = 384', source)
         self.assertIn('generation_config.setdefault("eos_token_ids", [151645, 151643])', source)
         self.assertIn("REQUIRE_SAMPLE = False", source)
-        self.assertIn("SKIPPED EXPORT", source)
+        self.assertNotIn("SKIPPED EXPORT", source)
+        self.assertIn("if SAMPLE is not None:", source)
+
+        export_config = yaml.safe_load((ROOT / "configs/export.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(export_config["page_value_type"], "integer")
+        self.assertNotIn("require_sample", export_config)
 
     def test_repository_contains_one_end_to_end_notebook(self):
         notebooks = sorted(path.name for path in (ROOT / "notebooks").glob("*.ipynb"))
@@ -92,7 +97,9 @@ class NotebookInputDiscovery(unittest.TestCase):
     def test_runtime_config_enables_retry_and_uses_new_run(self):
         with tempfile.TemporaryDirectory() as directory:
             namespace = self.run_paths(Path(directory) / "missing")
-            namespace.update(ROOT=ROOT, BASE_GEN_CONFIG=ROOT / "configs/generate.yaml")
+            namespace.update(ROOT=ROOT, BASE_GEN_CONFIG=ROOT / "configs/generate.yaml",
+                             BASE_EXPORT_CONFIG=ROOT / "configs/export.yaml",
+                             EXPORT_CONFIG=namespace["WORK"] / "configs/export_documented_schema.yaml")
             exec(GENERATION_SETUP, namespace)
             config = yaml.safe_load(namespace["GEN_CONFIG"].read_text(encoding="utf-8"))
             self.assertEqual(config["max_new_tokens"], 384)
@@ -105,6 +112,9 @@ class NotebookInputDiscovery(unittest.TestCase):
             self.assertIn("180 words", config["retry_instruction"])
             self.assertEqual(config["model_name"], "Qwen/Qwen2.5-1.5B-Instruct")
             self.assertTrue(Path(config["system_prompt_file"]).is_file())
+            export_config = yaml.safe_load(namespace["EXPORT_CONFIG"].read_text(encoding="utf-8"))
+            self.assertNotIn("require_sample", export_config)
+            self.assertEqual(export_config["page_value_type"], "integer")
 
     def test_stale_clone_is_rejected_before_generation(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -128,10 +138,11 @@ class NotebookInputDiscovery(unittest.TestCase):
                     exec(STEPS[4][2], namespace)
             display_module.display.assert_called_once_with(str(run / "diagnosis.json"))
 
-    def test_export_stage_skips_cleanly_without_official_sample(self):
-        stage = Mock()
-        exec(STEPS[5][2], {"stage": stage, "SAMPLE": None})
-        stage.assert_not_called()
+    def test_export_stage_does_not_gate_on_official_sample(self):
+        source = STEPS[5][2]
+        self.assertNotIn("if SAMPLE is None", source)
+        self.assertNotIn("SKIPPED EXPORT", source)
+        self.assertIn("stage(*args)", source)
 
 
 if __name__ == "__main__":
