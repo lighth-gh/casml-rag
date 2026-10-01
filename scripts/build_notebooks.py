@@ -171,6 +171,9 @@ if AUTO_QUERIES or QUERIES_OVERRIDE:
     print("Queries:", QUERIES)
 if AUTO_SAMPLE or SAMPLE_OVERRIDE:
     print("Sample:", SAMPLE)
+    if SAMPLE is None:
+        print("WARNING: Official sample_submission.csv was not found. "
+              "Prepare/retrieve/generate will continue; export will be skipped.")
 
 PAGE_MAP = None  # Đặt Path đến page_map_override.csv sau khi kiểm tra số trang/mục.
 CORPUS = WORK / "artifacts/corpus_printed_v3"
@@ -267,16 +270,19 @@ finally:
         display(FileLink(str(diagnosis_path)))
 print((RUN / "report.json").read_text())
 '''),
-5: ('export', 'requirements-export.txt', '''args = ["export", "--run", RUN, "--queries", QUERIES, "--config", ROOT / "configs/export.yaml", "--out", OUTPUT]
-if SAMPLE is not None:
+5: ('export', 'requirements-export.txt', '''if SAMPLE is None:
+    print("SKIPPED EXPORT: official sample_submission.csv is missing. "
+          "Attach it, set SAMPLE_OVERRIDE, then rerun section 0 and section 5 only.")
+else:
+    args = ["export", "--run", RUN, "--queries", QUERIES, "--config", ROOT / "configs/export.yaml", "--out", OUTPUT]
     args += ["--sample", SAMPLE]
-if PDF is not None:
-    args += ["--pdf", PDF]  # Đặt PDF = None nếu chỉ có run generation.
-stage(*args)
-print((OUTPUT / "validation.json").read_text())
-from IPython.display import FileLink, display
-display(FileLink(str(OUTPUT / "submission.csv")))
-display(FileLink(str(OUTPUT / "audit.html")))
+    if PDF is not None:
+        args += ["--pdf", PDF]  # Đặt PDF = None nếu chỉ có run generation.
+    stage(*args)
+    print((OUTPUT / "validation.json").read_text())
+    from IPython.display import FileLink, display
+    display(FileLink(str(OUTPUT / "submission.csv")))
+    display(FileLink(str(OUTPUT / "audit.html")))
 '''),
 }
 
@@ -302,14 +308,14 @@ def main():
              'để có thể chỉnh cấu hình và chạy lại từ đúng điểm cần thiết.\n\n'
              'Bật Internet để clone GitHub và tải model lần đầu; bật GPU nếu có. Sửa đường dẫn dữ liệu '
              'ở section 0. Notebook không tự nộp submission. Mỗi stage chạy trong process riêng để giải '
-             'phóng bộ nhớ sau khi hoàn tất. Trước khi nộp, bắt buộc dùng sample_submission.csv chính thức '
-             'và kiểm tra page mapping trong validation/audit.')
+             'phóng bộ nhớ sau khi hoàn tất. Nếu chưa có sample_submission.csv chính thức, notebook vẫn tạo '
+             'run generation nhưng bỏ qua export. Trước khi nộp, gắn sample và kiểm tra page mapping trong validation/audit.')
     setup_note = ('## 0. Setup + input paths + runtime config\n\n'
                   'Chỉnh `ROOT_OVERRIDE`, `INPUT_ROOT_OVERRIDE`, `PDF_OVERRIDE`, `QUERIES_OVERRIDE` và '
                   '`SAMPLE_OVERRIDE` tại đây. Các section phía dưới dùng chung những đường dẫn này.')
     full = [md(intro), md(setup_note), code(SETUP),
             paths(auto_pdf=True, require_pdf=True, auto_queries=True, auto_sample=True,
-                  require_sample=True),
+                  require_sample=False),
             install("requirements.txt"), code(GENERATION_SETUP)]
     guidance = {
         1: ('PDF → chunks + printed-page map',

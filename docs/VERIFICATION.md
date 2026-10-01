@@ -28,7 +28,7 @@ B0 trước đây đã chạy đủ 5 bước trên CPU với PDF mẫu 4 trang 
 10. Giữ thứ tự ID của sample; từ chối PDF audit khác sách gốc.
 11. Backend demo không được xuất nhầm bằng cấu hình B0 thật.
 12. ID trùng sau chuẩn hóa bị từ chối.
-13. Notebook production dừng trước pipeline nếu thiếu sample chính thức.
+13. Notebook vẫn tạo run generation nếu thiếu sample chính thức nhưng bỏ qua export; export production vẫn bắt buộc sample.
 14. Generation production dừng ở câu bị cắt đầu tiên và không resume nhầm checkpoint đó.
 15. Qwen nhận EOS/pad token rõ ràng; reranker giới hạn input ở 512 token.
 

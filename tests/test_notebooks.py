@@ -56,7 +56,7 @@ class NotebookInputDiscovery(unittest.TestCase):
             self.assertIsNone(result["QUERIES"])
             self.assertIsNone(result["SAMPLE"])
 
-    def test_full_notebook_requires_official_sample_before_pipeline(self):
+    def test_full_notebook_can_generate_without_official_sample(self):
         with tempfile.TemporaryDirectory() as directory:
             data = Path(directory) / "competition"
             data.mkdir()
@@ -64,9 +64,9 @@ class NotebookInputDiscovery(unittest.TestCase):
             (data / "queries.json").write_text(json.dumps([
                 {"query_id": "1", "question": "What is memory?"}
             ]), encoding="utf-8")
-            with self.assertRaisesRegex(FileNotFoundError, "SAMPLE_OVERRIDE"):
-                self.run_paths(data, auto_pdf=True, require_pdf=True, auto_queries=True,
-                               auto_sample=True, require_sample=True)
+            result = self.run_paths(data, auto_pdf=True, require_pdf=True, auto_queries=True,
+                                    auto_sample=True, require_sample=False)
+            self.assertIsNone(result["SAMPLE"])
 
     def test_production_generation_has_bounded_length_and_eos_guard(self):
         config = yaml.safe_load((ROOT / "configs/generate.yaml").read_text(encoding="utf-8"))
@@ -82,7 +82,8 @@ class NotebookInputDiscovery(unittest.TestCase):
         self.assertIn('generation_config["max_new_tokens"] = GEN_MAX_NEW_TOKENS', source)
         self.assertIn('GEN_RETRY_MAX_NEW_TOKENS = 384', source)
         self.assertIn('generation_config.setdefault("eos_token_ids", [151645, 151643])', source)
-        self.assertIn("REQUIRE_SAMPLE = True", source)
+        self.assertIn("REQUIRE_SAMPLE = False", source)
+        self.assertIn("SKIPPED EXPORT", source)
 
     def test_repository_contains_one_end_to_end_notebook(self):
         notebooks = sorted(path.name for path in (ROOT / "notebooks").glob("*.ipynb"))
@@ -126,6 +127,11 @@ class NotebookInputDiscovery(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "stage failed"):
                     exec(STEPS[4][2], namespace)
             display_module.display.assert_called_once_with(str(run / "diagnosis.json"))
+
+    def test_export_stage_skips_cleanly_without_official_sample(self):
+        stage = Mock()
+        exec(STEPS[5][2], {"stage": stage, "SAMPLE": None})
+        stage.assert_not_called()
 
 
 if __name__ == "__main__":
