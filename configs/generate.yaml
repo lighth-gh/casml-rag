@@ -21,6 +21,9 @@ retry_instruction: >-
   Finish the answer after addressing the question. Use only the supplied excerpts.
 grounding_validator_enabled: true
 grounding_validator_max_retries: 1
+grounding_retry_max_new_tokens: 224
+grounding_deterministic_repair: true
+grounding_repair_max_words: 140
 grounding_validator_retry_instruction: >-
   Use exact evidence only. Do not introduce any number, year, person,
   organization, place, named theory, or named work absent from the excerpts.

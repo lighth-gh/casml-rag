@@ -104,7 +104,7 @@ class NotebookInputDiscovery(unittest.TestCase):
             config = yaml.safe_load(namespace["GEN_CONFIG"].read_text(encoding="utf-8"))
             self.assertEqual(config["max_new_tokens"], 384)
             self.assertEqual(config["retry_max_new_tokens"], 384)
-            self.assertEqual(namespace["RUN"].name, "hybrid_r3_qwen15b_t384_grounded")
+            self.assertEqual(namespace["RUN"].name, "hybrid_r3_qwen15b_t384_grounded_v2")
             self.assertEqual(config["retry_repetition_penalty"], 1.15)
             self.assertEqual(config["retry_no_repeat_ngram_size"], 8)
             self.assertEqual(config["eos_token_ids"], [151645, 151643])
@@ -112,11 +112,15 @@ class NotebookInputDiscovery(unittest.TestCase):
             self.assertIn("140 words", config["retry_instruction"])
             self.assertTrue(config["grounding_validator_enabled"])
             self.assertEqual(config["grounding_validator_max_retries"], 1)
+            self.assertEqual(config["grounding_retry_max_new_tokens"], 224)
+            self.assertTrue(config["grounding_deterministic_repair"])
             self.assertEqual(config["model_name"], "Qwen/Qwen2.5-1.5B-Instruct")
             self.assertTrue(Path(config["system_prompt_file"]).is_file())
             export_config = yaml.safe_load(namespace["EXPORT_CONFIG"].read_text(encoding="utf-8"))
             self.assertNotIn("require_sample", export_config)
             self.assertEqual(export_config["page_value_type"], "integer")
+            self.assertTrue(export_config["fail_on_unsupported_claims"])
+            self.assertEqual(export_config["max_answer_words"], 140)
 
     def test_stale_clone_is_rejected_before_generation(self):
         with tempfile.TemporaryDirectory() as directory:

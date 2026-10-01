@@ -181,7 +181,7 @@ INDEX = WORK / "artifacts/index_bge_v3"
 RETRIEVAL = WORK / "artifacts/retrieval_hybrid_r2"
 GEN_MAX_NEW_TOKENS = 384
 GEN_RETRY_MAX_NEW_TOKENS = 384
-RUN_NAME = f"hybrid_r3_qwen15b_t{GEN_MAX_NEW_TOKENS}_grounded"
+RUN_NAME = f"hybrid_r3_qwen15b_t{GEN_MAX_NEW_TOKENS}_grounded_v2"
 RUN = WORK / "runs" / RUN_NAME
 OUTPUT = WORK / "outputs" / RUN_NAME
 BASE_GEN_CONFIG = ROOT / "configs/generate.yaml"
@@ -234,6 +234,9 @@ generation_config["retry_instruction"] = ("Give a complete, concise answer in at
                                           "Use only the supplied excerpts.")
 generation_config["grounding_validator_enabled"] = True
 generation_config["grounding_validator_max_retries"] = 1
+generation_config["grounding_retry_max_new_tokens"] = 224
+generation_config["grounding_deterministic_repair"] = True
+generation_config["grounding_repair_max_words"] = 140
 generation_config["grounding_validator_retry_instruction"] = (
     "Use exact evidence only. Do not introduce any number, year, person, organization, place, "
     "named theory, or named work absent from the excerpts."
@@ -249,6 +252,8 @@ GEN_CONFIG.write_text(yaml.safe_dump(generation_config, sort_keys=False), encodi
 export_config = yaml.safe_load(BASE_EXPORT_CONFIG.read_text(encoding="utf-8"))
 export_config.pop("require_sample", None)
 export_config["page_value_type"] = "integer"
+export_config["fail_on_unsupported_claims"] = True
+export_config["max_answer_words"] = 140
 EXPORT_CONFIG.write_text(yaml.safe_dump(export_config, sort_keys=False), encoding="utf-8")
 print("Generation config:", GEN_CONFIG)
 print("max_new_tokens:", generation_config["max_new_tokens"])
@@ -258,6 +263,7 @@ print("retry_no_repeat_ngram_size:", generation_config["retry_no_repeat_ngram_si
 print("eos_token_ids:", generation_config["eos_token_ids"])
 print("abort_after_consecutive_length_limited:", generation_config["abort_after_consecutive_length_limited"])
 print("grounding_validator_max_retries:", generation_config["grounding_validator_max_retries"])
+print("grounding_retry_max_new_tokens:", generation_config["grounding_retry_max_new_tokens"])
 print("Export config:", EXPORT_CONFIG)
 print("Run:", RUN)
 '''

@@ -11,7 +11,8 @@ from .contracts import validate_retrieval
 from .context import pack_context
 from .diagnosis import write_diagnosis
 from .llm import make_generator
-from .validation import grounding_retry_instruction, validate_answer_grounding
+from .validation import (grounding_retry_instruction, remove_unsupported_sentences,
+                         validate_answer_grounding)
 
 
 def load_prompts(config, config_path):
@@ -93,8 +94,13 @@ def generate_grounded_answer(backend, payload, config, on_attempt=None):
         raise ValueError("grounding_validator_max_retries must be non-negative")
     all_attempts = list(result.get("generation_attempts", []))
     validation_attempts = []
+    drafts = []
     for retry_index in range(max_retries + 1):
-        validation = validate_answer_grounding(result["answer"], payload["evidence"])
+        validation = validate_answer_grounding(
+            result["answer"], payload["evidence"],
+            max_words=int(config.get("grounding_repair_max_words", 140)))
+        drafts.append({"retry_index": retry_index, "answer": result["answer"],
+                       "validation": validation, "output_tokens": result["output_tokens"]})
         validation_attempts.append({"retry_index": retry_index, "validation": validation,
                                     "answer_head": result["answer"][:300],
                                     "answer_tail": result["answer"][-300:]})
@@ -103,15 +109,55 @@ def generate_grounded_answer(backend, payload, config, on_attempt=None):
         result["generation_attempts"] = all_attempts
         if on_attempt is not None:
             on_attempt(result)
-        if validation["valid"] or retry_index >= max_retries:
+        if validation["valid"]:
+            return result
+        if retry_index >= max_retries:
+            if config.get("grounding_deterministic_repair", True):
+                repairs = []
+                for draft in drafts:
+                    candidate = remove_unsupported_sentences(
+                        draft["answer"], draft["validation"], payload["evidence"],
+                        max_words=int(config.get("grounding_repair_max_words", 140)))
+                    candidate["source_retry_index"] = draft["retry_index"]
+                    candidate["source_answer"] = draft["answer"]
+                    candidate["source_output_tokens"] = draft["output_tokens"]
+                    if candidate["answer"] and candidate["validation"]["valid"]:
+                        repairs.append(candidate)
+                repair = (min(repairs, key=lambda candidate: (
+                    len(candidate["removed_sentences"]), len(candidate["removed_fragments"]),
+                    candidate["word_count"])) if repairs else
+                    {"answer": "", "validation": validation, "removed_sentences": [],
+                     "removed_fragments": [], "word_count": 0, "source_retry_index": None,
+                     "source_answer": result["answer"], "source_output_tokens": result["output_tokens"]})
+                result["grounding_repair"] = {key: value for key, value in repair.items()
+                                              if key not in ("answer", "source_answer")}
+                if repair["answer"] and repair["validation"]["valid"]:
+                    validation_attempts.append({"retry_index": "deterministic_repair",
+                                                "validation": repair["validation"],
+                                                "answer_head": repair["answer"][:300],
+                                                "answer_tail": repair["answer"][-300:]})
+                    result["model_answer_before_grounding_repair"] = repair["source_answer"]
+                    result["model_output_tokens_before_grounding_repair"] = repair["source_output_tokens"]
+                    result["answer"] = repair["answer"]
+                    result["answer_validation"] = repair["validation"]
+                    result["validation_attempts"] = validation_attempts
+                    result["output_tokens"] = backend.count_text(repair["answer"])
+                    result["finish_reason"] = "grounding_repair"
+                    if on_attempt is not None:
+                        on_attempt(result)
             return result
         instruction = grounding_retry_instruction(
             validation, config.get("grounding_validator_retry_instruction", ""))
         retry_payload = dict(payload)
         messages = [dict(message) for message in payload["messages"]]
-        messages[-1]["content"] += "\n\n" + instruction
+        messages.append({"role": "assistant", "content": result["answer"]})
+        messages.append({"role": "user", "content": instruction})
         retry_payload.update(messages=messages, input_tokens=backend.count_messages(messages))
         retry_config = dict(config)
+        grounding_tokens = int(config.get("grounding_retry_max_new_tokens", config["max_new_tokens"]))
+        retry_config["max_new_tokens"] = grounding_tokens
+        retry_config["retry_max_new_tokens"] = grounding_tokens
+        retry_config["retry_instruction"] = ""
         retry_config["repetition_penalty"] = config.get(
             "retry_repetition_penalty", config.get("repetition_penalty", 1.0))
         retry_config["no_repeat_ngram_size"] = config.get(

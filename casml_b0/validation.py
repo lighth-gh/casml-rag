@@ -23,7 +23,7 @@ _NON_NAME_WORDS = {
     "a", "an", "the", "this", "that", "these", "those", "it", "they", "he", "she", "we", "i",
     "in", "on", "at", "by", "for", "from", "to", "with", "without", "during", "after", "before",
     "however", "therefore", "thus", "additionally", "moreover", "overall", "finally", "first", "second",
-    "third", "also", "for example", "for instance", "according", "summary", "nature", "duration",
+    "third", "also", "unlike", "for example", "for instance", "according", "summary", "nature", "duration",
     "etiology", "symptoms", "impact", "classification", "key", "examples",
 }
 
@@ -112,7 +112,7 @@ def _proper_name_candidates(answer):
     return candidates
 
 
-def validate_answer_grounding(answer, evidence):
+def validate_answer_grounding(answer, evidence, max_words=140):
     """Return unsupported numbers/years/proper names relative to evidence text."""
     evidence_text = "\n".join(str(item.get("text", "")) for item in evidence)
     evidence_numbers = {canonical for _, canonical in _numbers(evidence_text)}
@@ -135,12 +135,17 @@ def validate_answer_grounding(answer, evidence):
             if original not in unsupported_names:
                 unsupported_names.append(original)
 
-    valid = not unsupported_numbers and not unsupported_years and not unsupported_names
+    word_count = len(str(answer).split())
+    too_long = word_count > int(max_words)
+    valid = not unsupported_numbers and not unsupported_years and not unsupported_names and not too_long
     return {
         "valid": valid,
         "unsupported_numbers": unsupported_numbers,
         "unsupported_years": unsupported_years,
         "unsupported_proper_names": unsupported_names,
+        "word_count": word_count,
+        "max_words": int(max_words),
+        "too_long": too_long,
         "scope": "Evidence-token support only; relationships and general factual accuracy are not verified.",
     }
 
@@ -148,9 +153,61 @@ def validate_answer_grounding(answer, evidence):
 def grounding_retry_instruction(validation, base_instruction=""):
     blocked = (validation["unsupported_numbers"] + validation["unsupported_years"] +
                validation["unsupported_proper_names"])
-    details = ", ".join(repr(value) for value in blocked[:20])
+    details = ", ".join(repr(value) for value in blocked[:20]) or "none; shorten the draft"
     prefix = (str(base_instruction).strip() + "\n") if str(base_instruction).strip() else ""
     return (prefix +
-            "Rewrite the answer from scratch. Every number, year, and proper name in the answer must appear "
-            "in the supplied textbook excerpts. Omit unsupported details, do not infer missing dates or names, "
-            "and stay under 140 words. Do not output these unsupported items: " + details)
+            "Edit the previous draft into a direct answer of at most 110 words. Every number, year, and proper "
+            "name in the answer must appear in the supplied textbook excerpts. Delete unsupported details; do not "
+            "replace them with new guesses. Output only the corrected answer. Do not output these unsupported "
+            "items: " + details)
+
+
+def remove_unsupported_sentences(answer, validation, evidence, max_words=140):
+    """Conservative fallback: drop whole sentences containing unsupported tokens."""
+    blocked_numbers = {_canonical_number(value) for value in
+                       validation["unsupported_numbers"] + validation["unsupported_years"]}
+    blocked_names = [" ".join(_normalized_words(value)) for value in validation["unsupported_proper_names"]]
+
+    def contains_blocked(text):
+        text_numbers = {canonical for _, canonical in _numbers(text)}
+        text_words = " ".join(_normalized_words(text))
+        return bool(text_numbers & blocked_numbers) or any(
+            name and name in text_words for name in blocked_names)
+
+    removed_fragments = []
+    def drop_blocked_parenthetical(match):
+        if contains_blocked(match.group(0)):
+            removed_fragments.append(match.group(0))
+            return ""
+        return match.group(0)
+
+    cleaned = re.sub(r"\([^()]*\)", drop_blocked_parenthetical, str(answer))
+    cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+(?=[A-Z\"'])|\n+", cleaned)
+                 if part.strip()]
+    kept, removed = [], []
+    for sentence in sentences:
+        (removed if contains_blocked(sentence) else kept).append(sentence)
+
+    selected, word_count = [], 0
+    for sentence in kept:
+        count = len(sentence.split())
+        if word_count + count > int(max_words):
+            break
+        selected.append(sentence)
+        word_count += count
+    repaired = " ".join(selected).strip()
+    repaired_validation = validate_answer_grounding(repaired, evidence, max_words=max_words) if repaired else {
+        "valid": False,
+        "unsupported_numbers": [],
+        "unsupported_years": [],
+        "unsupported_proper_names": [],
+        "word_count": 0,
+        "max_words": int(max_words),
+        "too_long": False,
+        "scope": "Deterministic repair removed every sentence.",
+    }
+    return {"answer": repaired, "validation": repaired_validation,
+            "removed_sentences": removed, "removed_fragments": removed_fragments,
+            "word_count": word_count}

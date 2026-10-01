@@ -431,7 +431,7 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
         manifest = read_json(run / "manifest.json")
         manifest["files"]["predictions.jsonl"] = file_hash(run / "predictions.jsonl")
         write_json(run / "manifest.json", manifest)
-        with self.assertRaisesRegex(ValueError, "absent from their evidence"):
+        with self.assertRaisesRegex(ValueError, "evidence-token or word-count"):
             export(run, self.data / "queries.json", self.exp, self.base / "blocked_export")
 
     def test_demo_cannot_accidentally_be_exported_as_real_b0(self):
@@ -461,6 +461,9 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
             evidence,
         )
         self.assertTrue(valid["valid"])
+        too_long = validate_answer_grounding(" ".join(["psychology"] * 141), evidence)
+        self.assertFalse(too_long["valid"])
+        self.assertTrue(too_long["too_long"])
 
     def test_grounding_validator_retries_with_a_corrective_prompt(self):
         class SequenceBackend:
@@ -489,6 +492,39 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
         self.assertEqual(len(result["validation_attempts"]), 2)
         self.assertEqual(len(result["generation_attempts"]), 2)
         self.assertIn("Every number, year, and proper name", result["messages"][-1]["content"])
+
+    def test_grounding_validator_repairs_unsupported_sentences_after_retry(self):
+        class StillHallucinates:
+            context_window = 4096
+
+            def __init__(self):
+                self.answers = ["Wundt studied consciousness. He opened the laboratory in 1889.",
+                                "Wundt studied consciousness. He opened the laboratory in 1948."]
+
+            def count_text(self, text):
+                return len(text.split())
+
+            def count_messages(self, messages):
+                return sum(self.count_text(message["content"]) + 4 for message in messages) + 4
+
+            def generate(self, payload, config):
+                answer = self.answers.pop(0)
+                return {"answer": answer, "output_tokens": self.count_text(answer), "finish_reason": "eos"}
+
+        backend = StillHallucinates()
+        payload = {"messages": [{"role": "user", "content": "Use the excerpt."}], "input_tokens": 8,
+                   "evidence": [{"text": "Wundt studied consciousness and opened the laboratory in 1879."}],
+                   "context": "excerpt"}
+        config = {"max_new_tokens": 64, "retry_max_new_tokens": 64, "context_window": 512,
+                  "grounding_validator_enabled": True, "grounding_validator_max_retries": 1,
+                  "grounding_retry_max_new_tokens": 32, "grounding_deterministic_repair": True,
+                  "grounding_repair_max_words": 140}
+        result = generate_grounded_answer(backend, payload, config)
+        self.assertEqual(result["answer"], "Wundt studied consciousness.")
+        self.assertEqual(result["finish_reason"], "grounding_repair")
+        self.assertTrue(result["answer_validation"]["valid"])
+        self.assertEqual(result["grounding_repair"]["source_retry_index"], 0)
+        self.assertEqual(len(result["validation_attempts"]), 3)
 
     def test_bm25_and_rrf_preserve_exact_term_and_dense_candidates(self):
         bm25 = BM25Index([

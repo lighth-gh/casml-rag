@@ -103,7 +103,8 @@ def export(run, queries_path, config, out, sample=None, pdf=None):
             raise ValueError("CSV context and actual packed evidence differ")
         if p.get("finish_reason") == "length":
             truncated.append(p["query_id"])
-        answer_validation = validate_answer_grounding(p["answer"], p["evidence"])
+        answer_validation = validate_answer_grounding(
+            p["answer"], p["evidence"], max_words=int(config.get("max_answer_words", 140)))
         if not answer_validation["valid"]:
             unsupported_claims.append({"query_id": p["query_id"], "validation": answer_validation})
         refs = references_for(p["evidence"], config)
@@ -115,7 +116,7 @@ def export(run, queries_path, config, out, sample=None, pdf=None):
                          "and repetition controls in a new generation run, reusing retrieval; "
                          "increasing max_new_tokens alone may repeat the same unfinished answer.")
     if unsupported_claims and config.get("fail_on_unsupported_claims", True):
-        raise ValueError("Answers contain numbers, years, or proper names absent from their evidence: "
+        raise ValueError("Answers fail evidence-token or word-count validation: "
                          + json.dumps(unsupported_claims[:10], ensure_ascii=False))
     if pdf and file_hash(pdf) != parent["doc_id"]:
         raise ValueError("Audit PDF differs from the indexed PDF (SHA256 mismatch)")

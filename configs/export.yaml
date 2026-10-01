@@ -4,4 +4,5 @@ page_mode: printed
 page_value_type: integer
 fail_on_truncation: true
 fail_on_unsupported_claims: true
+max_answer_words: 140
 allow_demo: false
