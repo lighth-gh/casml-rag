@@ -41,6 +41,9 @@ def validate_evidence(e):
         raise ValueError(f"Evidence text changed: {e['chunk_id']}")
     if not isinstance(e["section_path"], list) or not all(isinstance(s, str) for s in e["section_path"]):
         raise ValueError("section_path must be a list of strings")
+    if "printed_page_method" in e and e["printed_page_method"] not in (
+            "pdf_label", "configured_offset", "user_override", "unknown"):
+        raise ValueError("Invalid printed_page_method")
     if e["char_start"] < 0 or e["char_end"] <= e["char_start"]:
         raise ValueError("Invalid evidence character range")
 

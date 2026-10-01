@@ -46,7 +46,7 @@ Mỗi dòng `retrieval.jsonl` có:
 
 Để chuyển cache sang máy khác chỉ cần **manifest + retrieval.jsonl**, không cần pickle Python, index, embedding hay PDF. Giữ manifest để bước generation kiểm tra checksum và tham chiếu cấu hình retrieval.
 
-Nếu thêm BM25/hybrid/reranker, cho bước retrieval xuất đúng hợp đồng này. Generation đọc thứ tự `candidates`, không giả định công thức score FAISS. Điểm khác scale giữa các retriever không được trộn trực tiếp; cách fusion thuộc retrieval.
+R1 dùng dense + BM25 và weighted reciprocal-rank fusion, sau đó cross-encoder rerank. Generation đọc thứ tự `candidates`, không giả định công thức score. Mỗi candidate giữ `dense_*`, `bm25_*`, `fusion_score` và `reranker_score` để audit; `retrieval_score` là điểm xếp hạng cuối.
 
 ## 4. Generation
 
@@ -64,6 +64,6 @@ Schema CSV hỗ trợ: `ID,context,answer,references`. `references` là JSON str
 
 References chỉ dùng **packed evidence**, không dùng toàn bộ 20 candidates và không lấy số trang do LLM sinh. CSV context khớp context generation. Với sample chính thức, giữ thứ tự cột/ID của sample và yêu cầu tập ID trùng khớp hoàn toàn.
 
-Page mode chỉ thuộc export: đổi PDF page sang printed page không gọi LLM/retriever. Điều này chỉ khả thi nếu metadata printed_page đã đúng; sửa metadata nguồn cần một chuỗi artifact mới.
+Page mode chỉ thuộc export. Cấu hình production ánh xạ `printed_page` ngay từ prepare bằng offset `-12`; sửa offset hoặc page map cần một chuỗi artifact mới để metadata evidence nhất quán.
 
 Audit tự chứa HTML, không gọi dịch vụ ngoài. Nếu đính kèm PDF, exporter kiểm tra SHA256 bằng doc_id rồi sao chép cạnh HTML; mỗi evidence có liên kết `book.pdf#page=N`.

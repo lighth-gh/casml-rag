@@ -107,14 +107,27 @@ def prepare(pdf, config, out, page_map_override=None):
                 anchors.append((page, list(stack)))
         anchors.sort(key=lambda a: a[0])
         explicit_labels = bool(doc.get_page_labels())
+        printed_page_offset = config.get("printed_page_offset")
+        if printed_page_offset is not None:
+            printed_page_offset = int(printed_page_offset)
         for i, page in enumerate(doc, 1):
             text = clean_text(page.get_text("text", sort=True))
             prior = [path for start, path in anchors if start <= i]
+            printed_page = (page.get_label() or None) if explicit_labels else None
+            if printed_page is None and printed_page_offset is not None:
+                inferred = i + printed_page_offset
+                printed_page = str(inferred) if inferred > 0 else None
             metadata = {"doc_id": doc_id, "source_pdf": pdf.name, "pdf_page": i,
-                        "printed_page": (page.get_label() or None) if explicit_labels else None,
+                        "printed_page": printed_page,
                         "section_path": prior[-1] if prior else [],
-                        "section_method": "toc_page_approximation" if prior else "unknown"}
-            metadata.update(overrides.get(i, {}))
+                        "section_method": "toc_page_approximation" if prior else "unknown",
+                        "printed_page_method": ("pdf_label" if explicit_labels else
+                                                "configured_offset" if printed_page is not None else "unknown")}
+            override = overrides.get(i)
+            if override:
+                metadata.update(override)
+                if override.get("printed_page") is not None:
+                    metadata["printed_page_method"] = "user_override"
             pages.append({**metadata, "text": text, "text_sha256": digest(text)})
             for a, b, body, n_tokens in split_page(text, tokenizer, size, overlap):
                 chunk_id = "c_" + digest([doc_id, i, a, b, body])[:24]
@@ -135,6 +148,8 @@ def prepare(pdf, config, out, page_map_override=None):
     report = {"page_count": len(pages), "chunk_count": len(chunks),
               "empty_pages": [p["pdf_page"] for p in pages if not p["text"]],
               "unmapped_printed_pages": sum(p["printed_page"] is None for p in pages),
+              "printed_page_offset": printed_page_offset,
+              "offset_mapped_printed_pages": sum(p["printed_page_method"] == "configured_offset" for p in pages),
               "approximate_sections": sum(p["section_method"] == "toc_page_approximation" for p in pages),
               "note": "TOC page ranges are approximate, especially at section boundaries. Inspect page_map.csv.",
               "environment": environment()}

@@ -5,3 +5,6 @@ tokenizer_revision: 5c38ec7c405ec4b44b94cc5a9bb96e735b38267a
 local_files_only: false
 chunk_tokens: 300
 chunk_overlap: 50
+# The competition PDF has 12 front-matter pages: PDF page 20 is textbook page 8.
+# This convention is also used by public CASML competition notebooks.
+printed_page_offset: -12

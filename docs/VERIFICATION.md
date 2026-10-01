@@ -2,7 +2,9 @@
 
 ## Tích hợp model thật
 
-Đã chạy đủ 5 bước trên CPU với PDF mẫu 4 trang và 3 câu hỏi đi kèm:
+Kết quả model thật dưới đây là bản kiểm tra lịch sử của B0. R1 hiện tại được kiểm tra bằng contract tests/mocks; lần chạy thật Qwen 1.5B + cross-encoder cần thực hiện trên Kaggle GPU với dữ liệu cuộc thi.
+
+B0 trước đây đã chạy đủ 5 bước trên CPU với PDF mẫu 4 trang và 3 câu hỏi đi kèm:
 
 - BGE-small-en-v1.5 → FAISS → Qwen2.5-0.5B-Instruct.
 - Cả 3 câu hoàn tất, không lỗi runtime, không chạm giới hạn token; CSV có đủ ID và references đọc lại được.
@@ -36,4 +38,4 @@
 - PDF mẫu đã render và kiểm tra trực quan; có nhúng font để tránh lỗi hiển thị.
 - Gói không chứa model weights, API key hoặc dữ liệu sách của cuộc thi.
 
-Chưa kiểm tra full corpus CASML, GPU Kaggle, sample/metric chính thức hoặc điểm leaderboard. File CSV mẫu chỉ phục vụ kiểm tra phần mềm, không để nộp contest.
+Chưa chạy R1 hiện tại trên full corpus CASML trong môi trường local này và không thể tái tạo metric private. File CSV trong `examples/` chỉ phục vụ kiểm tra phần mềm, không để nộp contest.

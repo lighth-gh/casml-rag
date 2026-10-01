@@ -1,2 +1,19 @@
-# Cache more candidates than generation consumes, so context experiments reuse it.
-top_k: 20
+# Dense + BM25 candidate generation, reciprocal-rank fusion, then cross-encoder reranking.
+# RRF deliberately combines ranks instead of incomparable dense/BM25 raw scores.
+method: hybrid
+top_k: 30
+dense_pool_k: 100
+bm25_pool_k: 100
+fusion_top_k: 50
+dense_weight: 0.55
+bm25_weight: 0.45
+rrf_k: 60
+bm25_k1: 1.5
+bm25_b: 0.75
+bm25_include_section_title: true
+reranker_backend: cross_encoder
+reranker_model_name: cross-encoder/ms-marco-MiniLM-L-12-v2
+reranker_revision: 7b0235231ca2674cb8ca8f022859a6eba2b1c968
+reranker_device: auto
+reranker_batch_size: 16
+local_files_only: false

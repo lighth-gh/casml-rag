@@ -172,16 +172,16 @@ if AUTO_SAMPLE or SAMPLE_OVERRIDE:
     print("Sample:", SAMPLE)
 
 PAGE_MAP = None  # Đặt Path đến page_map_override.csv sau khi kiểm tra số trang/mục.
-CORPUS = WORK / "artifacts/corpus_v1"
-INDEX = WORK / "artifacts/index_v1"
-RETRIEVAL = WORK / "artifacts/retrieval_v1"
+CORPUS = WORK / "artifacts/corpus_printed_v2"
+INDEX = WORK / "artifacts/index_bge_v2"
+RETRIEVAL = WORK / "artifacts/retrieval_hybrid_r1"
 GEN_MAX_NEW_TOKENS = 512
 GEN_RETRY_MAX_NEW_TOKENS = 2048
-RUN_NAME = f"b0_g04_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}"
+RUN_NAME = f"hybrid_r1_qwen15b_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}"
 RUN = WORK / "runs" / RUN_NAME
 OUTPUT = WORK / "outputs" / RUN_NAME
 BASE_GEN_CONFIG = ROOT / "configs/generate.yaml"
-GEN_CONFIG = WORK / "configs" / f"generate_g04_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}.yaml"
+GEN_CONFIG = WORK / "configs" / f"generate_qwen15b_t{GEN_MAX_NEW_TOKENS}_r{GEN_RETRY_MAX_NEW_TOKENS}.yaml"
 # Khi đổi prompt/model/config, dùng RUN và OUTPUT mới.
 '''
 
@@ -204,7 +204,8 @@ import yaml
 
 if ("retry_instruction" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
         "write_diagnosis" not in (ROOT / "casml_b0/generation.py").read_text(encoding="utf-8") or
-        "no_repeat_ngram_size" not in (ROOT / "casml_b0/llm.py").read_text(encoding="utf-8")):
+        "no_repeat_ngram_size" not in (ROOT / "casml_b0/llm.py").read_text(encoding="utf-8") or
+        "reciprocal_rank_fusion" not in (ROOT / "casml_b0/retrieval.py").read_text(encoding="utf-8")):
     raise RuntimeError("Mã nguồn đang dùng chưa có diagnosis hoặc retry với prompt ngắn và chống lặp. Cập nhật repo chứa bản sửa "
                        "(UPDATE_REPO = True), hoặc đặt ROOT_OVERRIDE tới bản project mới rồi chạy lại setup.")
 generation_config = yaml.safe_load(BASE_GEN_CONFIG.read_text(encoding="utf-8"))
@@ -244,7 +245,7 @@ print((CORPUS / "report.json").read_text())
 print("Lưu cả thư mục này để thử generation ở session khác:", RETRIEVAL)
 '''),
 4: ('generate', 'requirements-generation.txt', '''# Nếu cache nằm ở Input, sửa RETRIEVAL tại đây, ví dụ:
-# RETRIEVAL = Path("/kaggle/input/your-retrieval-cache/retrieval_v1")
+# RETRIEVAL = Path("/kaggle/input/your-retrieval-cache/retrieval_hybrid_r1")
 # Chỉ cần manifest.json + retrieval.jsonl. Không cần PDF/index/embedding.
 try:
     stage("generate", "--retrieval", RETRIEVAL, "--config", GEN_CONFIG, "--out", RUN)
@@ -285,36 +286,39 @@ def save(name, cells):
 
 
 def main():
-    intro = ('# CASML B0 — PDF → CSV\n\n'
-             'BGE-small + FAISS + Qwen2.5-0.5B-Instruct. BM25 và Qwen 1.5B để nâng cấp sau. Đọc README trước khi chạy. '
-             'Bật Internet để clone GitHub và tải model lần đầu; bật GPU nếu có. Sửa đường dẫn dữ liệu ở cell cấu hình. '
-             'Notebook không tự nộp submission.\n\n'
-             'Mỗi bước chạy process riêng. Đổi generation thì dùng notebook 04 trên cache có sẵn. '
-             'Kiểm tra schema chính thức và số trang trước khi nộp.')
-    full = [md(intro), code(SETUP), paths(auto_pdf=True, require_pdf=True, auto_queries=True, auto_sample=True),
+    intro = ('# CASML Hybrid R1 — end-to-end PDF → CSV\n\n'
+             'Notebook duy nhất cho toàn bộ 50 câu: BGE-small + BM25 + reciprocal-rank fusion + '
+             'cross-encoder reranking + Qwen2.5-1.5B-Instruct. Các stage vẫn nằm ở cell/section riêng '
+             'để có thể chỉnh cấu hình và chạy lại từ đúng điểm cần thiết.\n\n'
+             'Bật Internet để clone GitHub và tải model lần đầu; bật GPU nếu có. Sửa đường dẫn dữ liệu '
+             'ở section 0. Notebook không tự nộp submission. Mỗi stage chạy trong process riêng để giải '
+             'phóng bộ nhớ sau khi hoàn tất. Trước khi nộp, bắt buộc dùng sample_submission.csv chính thức '
+             'và kiểm tra page mapping trong validation/audit.')
+    setup_note = ('## 0. Setup + input paths + runtime config\n\n'
+                  'Chỉnh `ROOT_OVERRIDE`, `INPUT_ROOT_OVERRIDE`, `PDF_OVERRIDE`, `QUERIES_OVERRIDE` và '
+                  '`SAMPLE_OVERRIDE` tại đây. Các section phía dưới dùng chung những đường dẫn này.')
+    full = [md(intro), md(setup_note), code(SETUP),
+            paths(auto_pdf=True, require_pdf=True, auto_queries=True, auto_sample=True),
             install("requirements.txt"), code(GENERATION_SETUP)]
+    guidance = {
+        1: ('PDF → chunks + printed-page map',
+            'Chỉnh `configs/prepare.yaml`. Nếu đổi bước này, chạy lại tất cả section phía dưới.'),
+        2: ('Dense index',
+            'Chỉnh `configs/index.yaml`. Nếu đổi embedding/index, chạy lại từ section này.'),
+        3: ('Hybrid retrieval + reranker',
+            'Chỉnh `configs/retrieve.yaml` để tune dense/BM25/RRF/reranker, rồi chạy lại section 3–5.'),
+        4: ('Qwen 1.5B generation',
+            'Chỉnh `configs/generate.yaml` hoặc các override ở section 0, rồi chạy lại section 4–5.'),
+        5: ('Validate + export submission',
+            'Dùng sample_submission.csv chính thức. Kiểm tra `validation.json` và `audit.html` trước khi nộp.'),
+    }
     for number, (name, requirements, command) in STEPS.items():
-        title = f"## {number}. {name}\n\nĐầu ra có manifest và checksum. Cấu hình mới cần thư mục output mới."
+        heading, note = guidance[number]
+        title = (f"## {number}. {heading}\n\n{note}\n\n"
+                 'Đầu ra có manifest và checksum; cấu hình mới nên dùng thư mục output mới để tránh cache cũ.')
         full += [md(title), code(command)]
-        stage_intro = f"# CASML B0 — {name}\n\nChỉ chạy bước {name}. Chỉnh đường dẫn artifact đã có trong cell cấu hình."
-        if number == 4:
-            stage_intro += "\n\nGeneration chỉ đọc cache retrieval; không import FAISS/SentenceTransformer, không cần corpus/index."
-        if number == 5:
-            stage_intro += "\n\nKhông tải LLM. Có thể đổi page_mode và xuất lại từ run generation cũ."
-        path_options = {
-            1: dict(auto_pdf=True, require_pdf=True),
-            2: {},
-            3: dict(auto_queries=True),
-            4: {},
-            5: dict(auto_pdf=True, auto_queries=True, auto_sample=True),
-        }[number]
-        cells = [md(stage_intro), code(SETUP), paths(**path_options), install(requirements)]
-        if number == 4:
-            cells.append(code(GENERATION_SETUP))
-        cells.append(code(command))
-        save(f"{number:02d}_{name}.ipynb", cells)
-    save("00_run_b0.ipynb", full)
-    print("Created 6 notebooks")
+    save("CASML_R1_end_to_end.ipynb", full)
+    print("Created 1 notebook: notebooks/CASML_R1_end_to_end.ipynb")
 
 
 if __name__ == "__main__":

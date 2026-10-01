@@ -1,12 +1,13 @@
 backend: huggingface
-model_name: Qwen/Qwen2.5-0.5B-Instruct
-revision: 7ae557604adf67be50417f59c2c2f167def9a775
+model_name: Qwen/Qwen2.5-1.5B-Instruct
+revision: 989aa7980e4cf806f80c7fef2b1adb7bc71aa306
 local_files_only: false
 device: auto
 dtype: auto
+attn_implementation: eager
 seed: 42
-context_top_k: 6
-context_token_budget: 2300
+context_top_k: 4
+context_token_budget: 1900
 context_window: 4096
 max_new_tokens: 512
 # Retry only cut-off answers; capped by remaining context-window space.
@@ -20,7 +21,8 @@ retry_instruction: >-
   Finish the answer after addressing the question. Use only the supplied excerpts.
 duplicate_overlap: 0.75
 do_sample: false
-repetition_penalty: 1.0
+repetition_penalty: 1.05
+no_repeat_ngram_size: 6
 fail_fast: true
 system_prompt_file: ../prompts/system.txt
 user_prompt_file: ../prompts/user.txt

@@ -60,11 +60,15 @@ class NotebookInputDiscovery(unittest.TestCase):
         config = yaml.safe_load((ROOT / "configs/generate.yaml").read_text(encoding="utf-8"))
         self.assertGreaterEqual(config["max_new_tokens"], 512)
 
-        notebook = json.loads((ROOT / "notebooks/00_run_b0.ipynb").read_text(encoding="utf-8"))
+        notebook = json.loads((ROOT / "notebooks/CASML_R1_end_to_end.ipynb").read_text(encoding="utf-8"))
         source = "\n".join("".join(cell["source"]) for cell in notebook["cells"])
         self.assertIn("GEN_MAX_NEW_TOKENS = 512", source)
         self.assertIn('generation_config["max_new_tokens"] = GEN_MAX_NEW_TOKENS', source)
         self.assertIn('GEN_RETRY_MAX_NEW_TOKENS = 2048', source)
+
+    def test_repository_contains_one_end_to_end_notebook(self):
+        notebooks = sorted(path.name for path in (ROOT / "notebooks").glob("*.ipynb"))
+        self.assertEqual(notebooks, ["CASML_R1_end_to_end.ipynb"])
 
     def test_runtime_config_enables_retry_and_uses_new_run(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -74,10 +78,11 @@ class NotebookInputDiscovery(unittest.TestCase):
             config = yaml.safe_load(namespace["GEN_CONFIG"].read_text(encoding="utf-8"))
             self.assertEqual(config["max_new_tokens"], 512)
             self.assertEqual(config["retry_max_new_tokens"], 2048)
-            self.assertEqual(namespace["RUN"].name, "b0_g04_t512_r2048")
+            self.assertEqual(namespace["RUN"].name, "hybrid_r1_qwen15b_t512_r2048")
             self.assertEqual(config["retry_repetition_penalty"], 1.15)
             self.assertEqual(config["retry_no_repeat_ngram_size"], 8)
             self.assertIn("180 words", config["retry_instruction"])
+            self.assertEqual(config["model_name"], "Qwen/Qwen2.5-1.5B-Instruct")
             self.assertTrue(Path(config["system_prompt_file"]).is_file())
 
     def test_stale_clone_is_rejected_before_generation(self):

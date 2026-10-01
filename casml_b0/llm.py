@@ -45,8 +45,11 @@ class HFGenerator:
         self.tokenizer = AutoTokenizer.from_pretrained(config["model_name"], **options)
         if not self.tokenizer.chat_template:
             raise ValueError("Generator must have a chat template; use an instruct/chat model")
+        model_options = dict(options)
+        if config.get("attn_implementation"):
+            model_options["attn_implementation"] = config["attn_implementation"]
         self.model = AutoModelForCausalLM.from_pretrained(config["model_name"],
-                        torch_dtype=getattr(torch, precision), **options).to(self.device).eval()
+                        torch_dtype=getattr(torch, precision), **model_options).to(self.device).eval()
         self.context_window = int(getattr(self.model.config, "max_position_embeddings", 4096))
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id

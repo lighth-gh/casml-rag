@@ -43,7 +43,7 @@ Thử đổi `context_top_k` là thí nghiệm context packing, không phải so
 
 1. Chốt một B0 chạy toàn bộ dữ liệu thật và lưu artifact/config/hash.
 2. Cải thiện extraction/page map khi audit phát hiện sai.
-3. Nhánh R1: thêm BM25 + dense và fusion theo thứ hạng; vẫn xuất cùng retrieval contract.
-4. Nhánh R2: thêm reranker vào retrieval; giữ generation cố định để đo ảnh hưởng.
-5. Nhánh G1: sau khi B0 ổn định, thử Qwen 1.5B hoặc prompt/context packing trên cache chốt; chỉ thay một yếu tố mỗi lượt.
+3. R1 hiện tại: BGE-small + BM25 + weighted RRF + cross-encoder reranking.
+4. Ablation retrieval: giữ generation cố định, lần lượt tắt BM25 hoặc reranker để đo Recall@k và điểm leaderboard.
+5. Ablation generation: giữ cache hybrid cố định, so Qwen 0.5B/1.5B và context top 3/4/6; chỉ thay một yếu tố mỗi lượt.
 6. Chỉ thêm HyDE nếu có kiểm tra riêng về lợi ích, độ trễ và chi phí. HyDE là query transformation trong nhánh retrieval, không đưa vào generation trả lời cuối.

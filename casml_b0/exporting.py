@@ -70,17 +70,22 @@ def export(run, queries_path, config, out, sample=None, pdf=None):
     if len(set(pred_ids)) != len(pred_ids) or set(pred_ids) != set(ids):
         raise ValueError("Prediction IDs must exactly match ALL input query IDs; do not export a partial smoke run")
     questions = {q["query_id"]: q["question"] for q in queries}
+    if config.get("require_sample", False) and not sample:
+        raise ValueError("Official sample_submission.csv is required for the final competition export. "
+                         "Attach it and pass --sample; do not guess the submission schema or ID order.")
     headers = COLUMNS
+    sample_verified = False
     if sample:
         with open(sample, newline="", encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
             headers = reader.fieldnames
-            if len(headers or []) != 4 or set(headers or []) != set(COLUMNS):
-                raise ValueError(f"Sample columns differ from supported schema {COLUMNS}; inspect official format before adapting export")
+            if headers != COLUMNS:
+                raise ValueError(f"Official sample columns/order must be exactly {COLUMNS}; got {headers}")
             sample_ids = [r["ID"] for r in reader]
         if len(set(sample_ids)) != len(sample_ids) or set(sample_ids) != set(ids):
             raise ValueError("Sample IDs differ from query IDs")
         ids = sample_ids
+        sample_verified = True
     by_id = {p["query_id"]: p for p in predictions}
     predictions = [by_id[qid] for qid in ids]
     csv_rows, truncated = [], []
@@ -127,14 +132,20 @@ def export(run, queries_path, config, out, sample=None, pdf=None):
         raise ValueError("CSV round-trip failed")
     for r in roundtrip:
         json.loads(r["references"])
+    printed_methods = [e.get("printed_page_method", "unknown")
+                       for p in predictions for e in p["evidence"]]
     summary = {"rows": len(csv_rows), "page_mode": config.get("page_mode", "pdf"),
                "generator_backend": parent["generator_backend"], "retrieval_backend": parent.get("retrieval_backend"),
                "source_pdf_sha256": parent["doc_id"], "generation_id": parent["artifact_id"],
                "length_limited_queries": truncated,
                "approximate_section_evidence": sum(e["section_method"] == "toc_page_approximation" for p in predictions for e in p["evidence"]),
                "unknown_section_evidence": sum(not e["section_path"] for p in predictions for e in p["evidence"]),
+               "printed_page_methods": {method: printed_methods.count(method) for method in sorted(set(printed_methods))},
+               "official_sample_verified": sample_verified,
                "official_metric_verified": False,
-               "note": "Verify official sample format and page numbering before competition submission."}
+               "note": (("Schema and ID order were verified against the supplied official sample. "
+                         if sample_verified else "No official sample was supplied; schema/ID order are not officially verified. ")
+                        + "The hidden competition metric cannot be reproduced locally.")}
     write_json(out / "validation.json", summary)
     atomic_text(out / "audit.html", audit_html(predictions, summary, bool(pdf)))
     files = ["submission.csv", "validation.json", "audit.html"]

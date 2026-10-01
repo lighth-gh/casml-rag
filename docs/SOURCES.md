@@ -7,14 +7,15 @@
 - [Notebook công khai của ciwrl1](https://www.kaggle.com/code/ciwrl1/casml-genai-hackaton-advanced-rag): tham khảo cách tổ chức chunk có trang/mục, dense + BM25, reranking, generation và xuất submission.
 - [Notebook công khai của Vansh Dhar](https://www.kaggle.com/code/vansh63/casml-rag-2024): tham khảo BGE, reranker, HyDE, instruction model và context/references.
 
-B0 này giữ những phần cần cho baseline kiểm tra được: metadata xuyên suốt, retrieval riêng, context có ngân sách, model instruction và CSV. Các lựa chọn BGE-small, Qwen2.5-0.5B-Instruct, chia chunk theo trang, cache tự chứa, chữ ký artifact và audit HTML là thiết kế của bản starter; không gán chúng cho đội đạt giải. Không tuyên bố tái lập điểm số của hai notebook. BM25 và Qwen 1.5B là hướng nâng cấp sau, chưa tích hợp trong B0.
+R1 giữ metadata xuyên suốt, retrieval riêng, context có ngân sách, model instruction và CSV; đồng thời tích hợp BGE-small + BM25, weighted reciprocal-rank fusion, `cross-encoder/ms-marco-MiniLM-L-12-v2` và Qwen2.5-1.5B-Instruct. Không tuyên bố tái lập điểm số của notebook công khai hay leaderboard private.
 
-Các notebook công khai dùng schema `ID,context,answer,references`, với references gồm `sections` và `pages`. Starter triển khai schema đó và kiểm tra thêm nếu bạn cung cấp sample chính thức. Chưa xác minh được metric chính thức và quy ước trang duy nhất cho bộ dữ liệu gốc; mặc định xuất số trang PDF và yêu cầu đối chiếu trước khi nộp.
+Các notebook công khai dùng schema `ID,context,answer,references`, với references gồm `sections` và `pages`. Một notebook ánh xạ TOC từ PDF sang số trang sách bằng offset `-12`; đối chiếu corpus thực tế cũng cho thấy PDF page 20 là textbook page 8. R1 dùng quy ước này nhưng vẫn bắt buộc sample chính thức khi export để xác minh cột và ID. Metric private không thể tái tạo cục bộ.
 
 ## Model và thư viện
 
 - [BGE-small-en-v1.5 model card](https://huggingface.co/BAAI/bge-small-en-v1.5), revision `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`.
-- [Qwen2.5-0.5B-Instruct model card](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct), revision `7ae557604adf67be50417f59c2c2f167def9a775`.
+- [Qwen2.5-1.5B-Instruct model card](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct), revision `989aa7980e4cf806f80c7fef2b1adb7bc71aa306`.
+- [MS MARCO MiniLM-L12 cross-encoder](https://huggingface.co/cross-encoder/ms-marco-MiniLM-L-12-v2), revision `7b0235231ca2674cb8ca8f022859a6eba2b1c968`.
 - [SentenceTransformer API](https://www.sbert.net/docs/package_reference/sentence_transformer/SentenceTransformer.html).
 - [PyMuPDF Document API](https://pymupdf.readthedocs.io/en/latest/document.html).
 - [FAISS: tìm kiếm cơ bản](https://github.com/facebookresearch/faiss/wiki/Getting-started).

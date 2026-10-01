@@ -9,6 +9,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
+
 from casml_b0.artifacts import digest, file_hash, load_config, read_json, read_jsonl, write_json
 from casml_b0.contracts import load_queries
 from casml_b0.context import pack_context, messages_for
@@ -17,7 +19,7 @@ from casml_b0.generation import generate, generate_answer
 from casml_b0.indexing import build_index
 from casml_b0.llm import ExtractiveDemoGenerator
 from casml_b0.prepare import prepare
-from casml_b0.retrieval import retrieve
+from casml_b0.retrieval import BM25Index, reciprocal_rank_fusion, retrieve
 from scripts.make_demo import create_demo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -375,6 +377,12 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
         with self.assertRaisesRegex(ValueError, "SHA256"):
             export(self.base / "ordered", self.data / "queries.json", self.exp, self.base / "wrongpdf", pdf=sample)
 
+    def test_production_export_requires_official_sample(self):
+        generate(self.cache, self.gen, self.config_path, self.base / "sample_gate")
+        with self.assertRaisesRegex(ValueError, "Official sample_submission.csv"):
+            export(self.base / "sample_gate", self.data / "queries.json",
+                   {**self.exp, "require_sample": True}, self.base / "missing_sample")
+
     def test_demo_cannot_accidentally_be_exported_as_real_b0(self):
         generate(self.cache, self.gen, self.config_path, self.base / "demo")
         with self.assertRaisesRegex(ValueError, "Demo backends"):
@@ -385,6 +393,39 @@ generate({str(self.cache)!r}, load_config({str(self.config_path)!r}), {str(self.
         write_json(path, [{"query_id": 1, "question": "a"}, {"query_id": "1", "question": "b"}])
         with self.assertRaisesRegex(ValueError, "duplicate"):
             load_queries(path)
+
+    def test_bm25_and_rrf_preserve_exact_term_and_dense_candidates(self):
+        bm25 = BM25Index([
+            "client centered therapy Carl Rogers nondirective",
+            "unrelated material about visual perception",
+            "therapy in general",
+        ])
+        scores = bm25.scores("What is client-centered therapy?")
+        self.assertEqual(int(np.argmax(scores)), 0)
+        fused, values = reciprocal_rank_fusion([1, 0], [0, 2], dense_weight=0.5, bm25_weight=0.5)
+        self.assertEqual(fused[0], 0)
+        self.assertGreater(values[0], values[1])
+
+    def test_hybrid_retrieval_records_component_and_reranker_scores(self):
+        class FakeReranker:
+            def predict(self, pairs, **kwargs):
+                return np.asarray([text.casefold().count(question.split()[0].casefold())
+                                   for question, text in pairs], dtype=np.float32)
+
+        config = {"method": "hybrid", "top_k": 3, "dense_pool_k": 4,
+                  "bm25_pool_k": 4, "fusion_top_k": 4,
+                  "reranker_backend": "cross_encoder"}
+        target = self.base / "hybrid"
+        with patch("casml_b0.retrieval._make_reranker", return_value=FakeReranker()):
+            retrieve(self.index, self.data / "queries.json", config, target)
+        rows = read_jsonl(target / "retrieval.jsonl")
+        self.assertEqual(len(rows), 3)
+        self.assertTrue(all(len(row["candidates"]) == 3 for row in rows))
+        for candidate in rows[0]["candidates"]:
+            self.assertIn("dense_score", candidate)
+            self.assertIn("bm25_score", candidate)
+            self.assertIn("fusion_score", candidate)
+            self.assertIsNotNone(candidate["reranker_score"])
 
 
 if __name__ == "__main__":
