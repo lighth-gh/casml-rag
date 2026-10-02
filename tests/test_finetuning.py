@@ -84,10 +84,11 @@ class FineTuningTests(unittest.TestCase):
         self.assertEqual(train.call_args.args[0], "train.jsonl")
         self.assertEqual(train.call_args.args[-1], "val.jsonl")
 
-    def test_notebook_skips_training_by_default(self):
+    def test_notebook_can_explicitly_disable_training(self):
         stage = Mock()
         with patch("builtins.print"):
-            exec(FINETUNING, {"WORK": ROOT, "stage": stage})
+            exec(FINETUNING.replace("FINETUNE_ENABLED = True", "FINETUNE_ENABLED = False"),
+                 {"WORK": ROOT, "stage": stage})
         stage.assert_not_called()
 
     def test_notebook_selects_moved_model_then_restores_baseline(self):

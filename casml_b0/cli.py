@@ -6,14 +6,14 @@ from .artifacts import load_config
 def main(argv=None):
     parser = argparse.ArgumentParser(description="CASML B0 — independent artifact-based RAG stages")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("prepare", "index", "retrieve", "finetune", "generate", "export"):
+    for name in ("prepare", "index", "retrieve", "build-sft", "finetune", "generate", "export"):
         sub = commands.add_parser(name)
         sub.add_argument("--config", required=True)
         sub.add_argument("--out", required=True)
         if name == "prepare":
             sub.add_argument("--pdf", required=True)
             sub.add_argument("--page-map-override")
-        elif name == "index":
+        elif name in ("index", "build-sft"):
             sub.add_argument("--corpus", required=True)
         elif name == "retrieve":
             sub.add_argument("--index", required=True)
@@ -40,6 +40,9 @@ def main(argv=None):
     elif args.command == "retrieve":
         from .retrieval import retrieve
         m = retrieve(args.index, args.queries, config, args.out)
+    elif args.command == "build-sft":
+        from .synthetic import build_sft
+        m = build_sft(args.corpus, config, args.config, args.out)
     elif args.command == "finetune":
         from .finetuning import finetune
         m = finetune(args.train, config, args.config, args.out, args.validation)

@@ -31,6 +31,7 @@ def read_examples(path):
             raise ValueError(f"Duplicate query_id/question in {path}: {item['query_id']}")
         seen_ids.add(item["query_id"])
         seen_questions.add(question)
+        item["label_source"] = str(row.get("label_source", "user_supplied_unverified"))
         result.append(item)
     return result
 
@@ -185,6 +186,7 @@ def finetune(train_path, config, config_path, out, validation_path=None):
         "validation_ids": [row["query_id"] for row in eval_rows],
         "baseline_metrics": baseline_metrics, "train_metrics": result.metrics,
         "validation_metrics": eval_metrics, "dtype": precision, "environment": environment(),
+        "label_sources": sorted({row["label_source"] for row in train_rows + eval_rows}),
         "note": "Validation loss is teacher-forced answer loss, not a CASML score."})
     files = [str(p.relative_to(out)) for p in out.rglob("*") if p.is_file()
              and "checkpoints" not in p.relative_to(out).parts and p.name != "manifest.json"]

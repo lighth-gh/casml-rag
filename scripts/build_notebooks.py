@@ -286,22 +286,42 @@ print("Export config:", EXPORT_CONFIG)
 print("Run:", RUN)
 '''
 
-FINETUNING = '''# Bật sau khi chuẩn bị dữ liệu có đáp án chuẩn; xem docs/FINETUNING.md.
-FINETUNE_ENABLED = False
-TRAIN_JSONL = None  # Ví dụ: Path("/kaggle/input/my-training-data/train.jsonl")
-VALIDATION_JSONL = None  # None: chia holdout theo seed từ TRAIN_JSONL
-FINETUNE_OUT = WORK / "artifacts/qwen15b_lora_v1"
+FINETUNING = '''# Không có nhãn chính thức: tự tạo Q&A tổng hợp từ CORPUS rồi train LoRA.
+# Đặt False để chạy baseline; đặt TRAIN_JSONL nếu đã có dữ liệu kiểm tra tay.
+FINETUNE_ENABLED = True
+TRAIN_JSONL = None
+VALIDATION_JSONL = None
+SFT_DATA = WORK / "artifacts/book_synthetic_sft_v1"
+FINETUNE_OUT = WORK / "artifacts/qwen15b_book_lora_v2"
 
 if FINETUNE_ENABLED:
-    if TRAIN_JSONL is None or not Path(TRAIN_JSONL).is_file():
-        raise FileNotFoundError("Đặt TRAIN_JSONL tới JSONL query_id/question/context/answer có đáp án chuẩn.")
-    if not (ROOT / "casml_b0/finetuning.py").is_file():
-        raise RuntimeError("Cập nhật repo hoặc ROOT_OVERRIDE tới bản có bước finetune.")
+    if not (ROOT / "casml_b0/synthetic.py").is_file():
+        raise RuntimeError("Cập nhật repo hoặc ROOT_OVERRIDE tới bản có build-sft trước khi chạy.")
     subprocess.run([sys.executable, "-m", "pip", "install", "-r",
                     str(ROOT / "requirements-finetune.txt")], check=True)
+    subprocess.run([sys.executable, "-c",
+                    "import torch; assert torch.cuda.is_available(), 'Enable a CUDA GPU before synthetic data generation and fine-tuning'"], check=True)
+    if TRAIN_JSONL is None:
+        if VALIDATION_JSONL is not None:
+            raise ValueError("Đặt cả TRAIN_JSONL khi dùng validation riêng.")
+        if not (CORPUS / "manifest.json").is_file():
+            raise FileNotFoundError("Chạy section 1 prepare trước để tạo CORPUS từ sách.")
+        synthetic_config = yaml.safe_load((ROOT / "configs/synthetic.yaml").read_text(encoding="utf-8"))
+        synthetic_config["generation_config"] = str(BASELINE_GEN_CONFIG.resolve())
+        synthetic_config_path = WORK / "configs/synthetic_runtime.yaml"
+        synthetic_config_path.write_text(yaml.safe_dump(synthetic_config, sort_keys=False), encoding="utf-8")
+        stage("build-sft", "--corpus", CORPUS, "--config", synthetic_config_path, "--out", SFT_DATA)
+        TRAIN_JSONL = SFT_DATA / "train.jsonl"
+        VALIDATION_JSONL = SFT_DATA / "validation.jsonl"
+        print("Synthetic data (not official ground truth):", SFT_DATA)
+        print((SFT_DATA / "report.json").read_text(encoding="utf-8"))
+    if not Path(TRAIN_JSONL).is_file():
+        raise FileNotFoundError(f"Không tìm thấy TRAIN_JSONL: {TRAIN_JSONL}")
     fine_config = yaml.safe_load((ROOT / "configs/finetune.yaml").read_text(encoding="utf-8"))
-    # Dùng cùng prompt/context policy với experiment đã chọn ở section 0.
     fine_config["generation_config"] = str(BASELINE_GEN_CONFIG.resolve())
+    # Khởi đầu thận trọng với nhãn tổng hợp; so sánh với baseline trên holdout.
+    fine_config["num_train_epochs"] = 1
+    fine_config["learning_rate"] = 0.00005
     fine_config_path = WORK / "configs/finetune_runtime.yaml"
     fine_config_path.write_text(yaml.safe_dump(fine_config, sort_keys=False), encoding="utf-8")
     args = ["finetune", "--train", TRAIN_JSONL, "--config", fine_config_path, "--out", FINETUNE_OUT]
@@ -310,7 +330,7 @@ if FINETUNE_ENABLED:
     stage(*args)
     print((FINETUNE_OUT / "report.json").read_text(encoding="utf-8"))
 else:
-    print("Bỏ qua fine-tune. Chuẩn bị JSONL rồi bật FINETUNE_ENABLED để huấn luyện.")
+    print("Fine-tune disabled: using baseline.")
 '''
 
 FINETUNED_GENERATION = '''# Chọn model cho generation. Để None nếu dùng Qwen gốc.
@@ -329,6 +349,8 @@ if FINETUNED_ARTIFACT is not None:
     for key, name in (("system_prompt_file", "system.txt"), ("user_prompt_file", "user.txt")):
         selected_config[key] = str(model_artifact / name)
     model_tag = fine_manifest["artifact_id"][:12]
+    print("Using fine-tuned model:", selected_config["model_name"])
+    print("Fine-tune artifact ID:", fine_manifest["artifact_id"])
     GEN_CONFIG = WORK / "configs" / f"generate_finetuned_{model_tag}.yaml"
     GEN_CONFIG.write_text(yaml.safe_dump(selected_config, sort_keys=False), encoding="utf-8")
     RUN = WORK / "runs" / f"{RUN_NAME}_ft_{model_tag}"
@@ -433,8 +455,8 @@ def main():
                  'Đầu ra có manifest và checksum; cấu hình mới nên dùng thư mục output mới để tránh cache cũ.')
         if number == 4:
             full += [md("## 3b. Fine-tune Qwen 1.5B bằng LoRA (tùy chọn)\n\n"
-                        "Chuẩn bị JSONL có đáp án chuẩn riêng; xem `docs/FINETUNING.md`. "
-                        "Mặc định tắt. Không lấy đáp án dự đoán/test làm nhãn train."), code(FINETUNING)]
+                        "Không cần JSONL sẵn: tạo Q&A tổng hợp từ sách; xem `docs/FINETUNING.md`. "
+                        "Mặc định bật. Chia train/validation theo trang nguồn; không dùng câu test làm nhãn train."), code(FINETUNING)]
         full += [md(title)]
         if number == 4:
             full += [code(FINETUNED_GENERATION)]
