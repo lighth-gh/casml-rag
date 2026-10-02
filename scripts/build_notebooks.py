@@ -261,6 +261,7 @@ for key in ("system_prompt_file", "user_prompt_file"):
     generation_config[key] = str(prompt_path)
 GEN_CONFIG.parent.mkdir(parents=True, exist_ok=True)
 GEN_CONFIG.write_text(yaml.safe_dump(generation_config, sort_keys=False), encoding="utf-8")
+BASELINE_GEN_CONFIG = GEN_CONFIG
 
 export_config = yaml.safe_load(BASE_EXPORT_CONFIG.read_text(encoding="utf-8"))
 export_config.pop("require_sample", None)
@@ -282,6 +283,62 @@ print("abort_after_consecutive_length_limited:", generation_config["abort_after_
 print("grounding_validator_max_retries:", generation_config["grounding_validator_max_retries"])
 print("grounding_retry_max_new_tokens:", generation_config["grounding_retry_max_new_tokens"])
 print("Export config:", EXPORT_CONFIG)
+print("Run:", RUN)
+'''
+
+FINETUNING = '''# Bật sau khi chuẩn bị dữ liệu có đáp án chuẩn; xem docs/FINETUNING.md.
+FINETUNE_ENABLED = False
+TRAIN_JSONL = None  # Ví dụ: Path("/kaggle/input/my-training-data/train.jsonl")
+VALIDATION_JSONL = None  # None: chia holdout theo seed từ TRAIN_JSONL
+FINETUNE_OUT = WORK / "artifacts/qwen15b_lora_v1"
+
+if FINETUNE_ENABLED:
+    if TRAIN_JSONL is None or not Path(TRAIN_JSONL).is_file():
+        raise FileNotFoundError("Đặt TRAIN_JSONL tới JSONL query_id/question/context/answer có đáp án chuẩn.")
+    if not (ROOT / "casml_b0/finetuning.py").is_file():
+        raise RuntimeError("Cập nhật repo hoặc ROOT_OVERRIDE tới bản có bước finetune.")
+    subprocess.run([sys.executable, "-m", "pip", "install", "-r",
+                    str(ROOT / "requirements-finetune.txt")], check=True)
+    fine_config = yaml.safe_load((ROOT / "configs/finetune.yaml").read_text(encoding="utf-8"))
+    # Dùng cùng prompt/context policy với experiment đã chọn ở section 0.
+    fine_config["generation_config"] = str(BASELINE_GEN_CONFIG.resolve())
+    fine_config_path = WORK / "configs/finetune_runtime.yaml"
+    fine_config_path.write_text(yaml.safe_dump(fine_config, sort_keys=False), encoding="utf-8")
+    args = ["finetune", "--train", TRAIN_JSONL, "--config", fine_config_path, "--out", FINETUNE_OUT]
+    if VALIDATION_JSONL is not None:
+        args += ["--validation", VALIDATION_JSONL]
+    stage(*args)
+    print((FINETUNE_OUT / "report.json").read_text(encoding="utf-8"))
+else:
+    print("Bỏ qua fine-tune. Chuẩn bị JSONL rồi bật FINETUNE_ENABLED để huấn luyện.")
+'''
+
+FINETUNED_GENERATION = '''# Chọn model cho generation. Để None nếu dùng Qwen gốc.
+# Sau khi chạy section 3b, đường dẫn mặc định trỏ tới artifact vừa tạo.
+FINETUNED_ARTIFACT = globals().get("FINETUNE_OUT") if globals().get("FINETUNE_ENABLED", False) else None
+if FINETUNED_ARTIFACT is not None:
+    import json
+    model_artifact = Path(FINETUNED_ARTIFACT).resolve()
+    fine_manifest = json.loads((model_artifact / "manifest.json").read_text(encoding="utf-8"))
+    if not fine_manifest.get("complete") or fine_manifest.get("stage") != "finetune":
+        raise ValueError("Fine-tune chưa hoàn tất; chưa thể chạy generation.")
+    selected_config = yaml.safe_load((model_artifact / "generate.yaml").read_text(encoding="utf-8"))
+    # Cập nhật đường dẫn nếu artifact được chuyển từ session khác sang Kaggle Input.
+    selected_config["model_name"] = str(model_artifact / "model")
+    selected_config["finetune_artifact"] = str(model_artifact)
+    for key, name in (("system_prompt_file", "system.txt"), ("user_prompt_file", "user.txt")):
+        selected_config[key] = str(model_artifact / name)
+    model_tag = fine_manifest["artifact_id"][:12]
+    GEN_CONFIG = WORK / "configs" / f"generate_finetuned_{model_tag}.yaml"
+    GEN_CONFIG.write_text(yaml.safe_dump(selected_config, sort_keys=False), encoding="utf-8")
+    RUN = WORK / "runs" / f"{RUN_NAME}_ft_{model_tag}"
+    OUTPUT = WORK / "outputs" / f"{RUN_NAME}_ft_{model_tag}"
+else:
+    GEN_CONFIG = BASELINE_GEN_CONFIG
+    RUN = WORK / "runs" / RUN_NAME
+    OUTPUT = WORK / "outputs" / RUN_NAME
+    print("Dùng model baseline:", GEN_CONFIG)
+print("Generation config:", GEN_CONFIG)
 print("Run:", RUN)
 '''
 
@@ -374,7 +431,14 @@ def main():
         heading, note = guidance[number]
         title = (f"## {number}. {heading}\n\n{note}\n\n"
                  'Đầu ra có manifest và checksum; cấu hình mới nên dùng thư mục output mới để tránh cache cũ.')
-        full += [md(title), code(command)]
+        if number == 4:
+            full += [md("## 3b. Fine-tune Qwen 1.5B bằng LoRA (tùy chọn)\n\n"
+                        "Chuẩn bị JSONL có đáp án chuẩn riêng; xem `docs/FINETUNING.md`. "
+                        "Mặc định tắt. Không lấy đáp án dự đoán/test làm nhãn train."), code(FINETUNING)]
+        full += [md(title)]
+        if number == 4:
+            full += [code(FINETUNED_GENERATION)]
+        full += [code(command)]
     save("CASML_R1_end_to_end.ipynb", full)
     print("Created 1 notebook: notebooks/CASML_R1_end_to_end.ipynb")
 

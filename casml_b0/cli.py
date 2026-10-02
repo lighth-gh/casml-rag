@@ -6,7 +6,7 @@ from .artifacts import load_config
 def main(argv=None):
     parser = argparse.ArgumentParser(description="CASML B0 — independent artifact-based RAG stages")
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("prepare", "index", "retrieve", "generate", "export"):
+    for name in ("prepare", "index", "retrieve", "finetune", "generate", "export"):
         sub = commands.add_parser(name)
         sub.add_argument("--config", required=True)
         sub.add_argument("--out", required=True)
@@ -18,6 +18,9 @@ def main(argv=None):
         elif name == "retrieve":
             sub.add_argument("--index", required=True)
             sub.add_argument("--queries", required=True)
+        elif name == "finetune":
+            sub.add_argument("--train", required=True, help="JSONL with query_id/question/context/answer")
+            sub.add_argument("--validation", help="Optional separate validation JSONL")
         elif name == "generate":
             sub.add_argument("--retrieval", required=True)
             sub.add_argument("--limit", type=int)
@@ -37,6 +40,9 @@ def main(argv=None):
     elif args.command == "retrieve":
         from .retrieval import retrieve
         m = retrieve(args.index, args.queries, config, args.out)
+    elif args.command == "finetune":
+        from .finetuning import finetune
+        m = finetune(args.train, config, args.config, args.out, args.validation)
     elif args.command == "generate":
         from .generation import generate
         m = generate(args.retrieval, config, args.config, args.out, args.limit)

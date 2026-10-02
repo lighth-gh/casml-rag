@@ -8,6 +8,11 @@ Pipeline R1 có thể chạy từ đầu, dùng **BGE-small-en-v1.5 + BM25 → r
 
 ## Bắt đầu ở đâu?
 
+**Fine-tune Qwen 1.5B (tùy chọn):** section **3b** trong notebook nhận JSONL
+`query_id/question/context/answer`, train LoRA và nối model đã train vào section 4.
+Mặc định tắt khi chưa có nhãn. Xem [hướng dẫn và lệnh CLI](docs/FINETUNING.md),
+`configs/finetune.yaml` và file mẫu `examples/finetune_train.jsonl`.
+
 | Nhu cầu | Điểm bắt đầu |
 |---|---|
 | Chạy toàn bộ trên Kaggle/local Jupyter | `notebooks/CASML_R1_end_to_end.ipynb` |

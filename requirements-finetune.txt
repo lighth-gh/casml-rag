@@ -1,0 +1,3 @@
+-r requirements-generation.txt
+peft==0.15.2
+accelerate==1.6.0

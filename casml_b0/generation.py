@@ -203,6 +203,12 @@ def generate(retrieval_dir, config, config_path, out, limit=None):
     if int(config.get("grounding_validator_max_retries", 1)) < 0:
         raise ValueError("grounding_validator_max_retries must be non-negative")
     effective = {**config, "system_prompt_content": system, "user_prompt_content": user}
+    if config.get("finetune_artifact"):
+        training_dir = Path(config["finetune_artifact"]).resolve()
+        training = load_artifact(training_dir, "finetune")
+        if Path(config["model_name"]).resolve() != training_dir / "model":
+            raise ValueError("model_name must point to the verified fine-tuned model directory")
+        effective["finetune_artifact_id"] = training["artifact_id"]
     sig = signature("generation", effective, {"retrieval_id": parent["artifact_id"], "selected_queries": digest(rows)},
                     ["generation.py", "context.py", "llm.py", "diagnosis.py", "validation.py"])
     manifest, cached = begin(out, sig, resumable=True)
