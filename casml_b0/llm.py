@@ -50,6 +50,9 @@ class HFGenerator:
             model_options["attn_implementation"] = config["attn_implementation"]
         self.model = AutoModelForCausalLM.from_pretrained(config["model_name"],
                         torch_dtype=getattr(torch, precision), **model_options).to(self.device).eval()
+        if config.get("adapter_path"):
+            from peft import PeftModel
+            self.model = PeftModel.from_pretrained(self.model, config["adapter_path"], is_trainable=False).eval()
         self.context_window = int(getattr(self.model.config, "max_position_embeddings", 4096))
         configured_eos = config.get("eos_token_ids")
         if configured_eos is None:
@@ -71,6 +74,23 @@ class HFGenerator:
         self.model.generation_config.pad_token_id = self.pad_token_id
         print(f"Generation stop tokens: eos={self.eos_token_ids}, pad={self.pad_token_id}", flush=True)
         torch.manual_seed(int(config.get("seed", 42)))
+
+    @classmethod
+    def from_loaded(cls, model, tokenizer, config):
+        """Use an already loaded training model for frozen dev generation."""
+        import torch
+        self = cls.__new__(cls)
+        self.torch, self.model, self.tokenizer = torch, model, tokenizer
+        self.device = next(model.parameters()).device
+        self.context_window = int(model.config.max_position_embeddings)
+        eos = config.get("eos_token_ids", model.generation_config.eos_token_id)
+        self.eos_token_ids = [eos] if isinstance(eos, int) else list(eos or [])
+        if not self.eos_token_ids:
+            raise ValueError("Missing EOS tokens")
+        self.pad_token_id = config.get("pad_token_id", tokenizer.pad_token_id)
+        if self.pad_token_id is None:
+            self.pad_token_id = self.eos_token_ids[-1]
+        return self
 
     def count_text(self, text):
         return len(self.tokenizer.encode(text, add_special_tokens=False))

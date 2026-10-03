@@ -1,0 +1,7 @@
+# Local human-reviewed proxy, NOT the hidden Kaggle evaluator.
+seed: 42
+bootstrap_samples: 2000
+min_dev_examples: 80
+min_holdout_examples: 80
+min_groups: 20
+min_gain: 0.02

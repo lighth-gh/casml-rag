@@ -286,75 +286,114 @@ print("Export config:", EXPORT_CONFIG)
 print("Run:", RUN)
 '''
 
-FINETUNING = '''# Không có nhãn chính thức: tự tạo Q&A tổng hợp từ CORPUS rồi train LoRA.
-# Đặt False để chạy baseline; đặt TRAIN_JSONL nếu đã có dữ liệu kiểm tra tay.
-FINETUNE_ENABLED = True
-TRAIN_JSONL = None
-VALIDATION_JSONL = None
-SFT_DATA = WORK / "artifacts/book_synthetic_sft_v1"
-FINETUNE_OUT = WORK / "artifacts/qwen15b_book_lora_v2"
+FINETUNING = '''# V2: các bước độc lập, mặc định chạy baseline.
+BUILD_DRAFTS = False
+PREPARE_REVIEWED = False
+FINETUNE_ENABLED = False
+ANNOTATIONS_JSONL = None  # Bản sao JSONL do người đọc sách duyệt; xem docs/FINETUNING.md.
+SFT_DRAFTS = WORK / "artifacts/book_drafts_v2"
+REVIEWED_DATA = WORK / "artifacts/book_reviewed_v2"
+FINETUNE_OUT = WORK / "artifacts/qwen15b_lora_candidates_v2"
 
-if FINETUNE_ENABLED:
-    if not (ROOT / "casml_b0/synthetic.py").is_file():
-        raise RuntimeError("Cập nhật repo hoặc ROOT_OVERRIDE tới bản có build-sft trước khi chạy.")
+if BUILD_DRAFTS or FINETUNE_ENABLED:
     subprocess.run([sys.executable, "-m", "pip", "install", "-r",
                     str(ROOT / "requirements-finetune.txt")], check=True)
-    subprocess.run([sys.executable, "-c",
-                    "import torch; assert torch.cuda.is_available(), 'Enable a CUDA GPU before synthetic data generation and fine-tuning'"], check=True)
-    if TRAIN_JSONL is None:
-        if VALIDATION_JSONL is not None:
-            raise ValueError("Đặt cả TRAIN_JSONL khi dùng validation riêng.")
-        if not (CORPUS / "manifest.json").is_file():
-            raise FileNotFoundError("Chạy section 1 prepare trước để tạo CORPUS từ sách.")
-        synthetic_config = yaml.safe_load((ROOT / "configs/synthetic.yaml").read_text(encoding="utf-8"))
-        synthetic_config["generation_config"] = str(BASELINE_GEN_CONFIG.resolve())
-        synthetic_config_path = WORK / "configs/synthetic_runtime.yaml"
-        synthetic_config_path.write_text(yaml.safe_dump(synthetic_config, sort_keys=False), encoding="utf-8")
-        stage("build-sft", "--corpus", CORPUS, "--config", synthetic_config_path, "--out", SFT_DATA)
-        TRAIN_JSONL = SFT_DATA / "train.jsonl"
-        VALIDATION_JSONL = SFT_DATA / "validation.jsonl"
-        print("Synthetic data (not official ground truth):", SFT_DATA)
-        print((SFT_DATA / "report.json").read_text(encoding="utf-8"))
-    if not Path(TRAIN_JSONL).is_file():
-        raise FileNotFoundError(f"Không tìm thấy TRAIN_JSONL: {TRAIN_JSONL}")
+if BUILD_DRAFTS:
+    draft_config = yaml.safe_load((ROOT / "configs/synthetic.yaml").read_text(encoding="utf-8"))
+    draft_config["generation_config"] = str(BASELINE_GEN_CONFIG.resolve())
+    draft_config_path = WORK / "configs/synthetic_runtime_v2.yaml"
+    draft_config_path.write_text(yaml.safe_dump(draft_config, sort_keys=False), encoding="utf-8")
+    stage("build-sft", "--corpus", CORPUS, "--config", draft_config_path, "--out", SFT_DRAFTS)
+    print("Chỉ tạo bản nháp, chưa đủ điều kiện train:", SFT_DRAFTS / "drafts.jsonl")
+if PREPARE_REVIEWED:
+    if ANNOTATIONS_JSONL is None or not Path(ANNOTATIONS_JSONL).is_file():
+        raise ValueError("Đặt ANNOTATIONS_JSONL đã duyệt trước khi prepare-sft.")
+    stage("prepare-sft", "--corpus", CORPUS, "--annotations", ANNOTATIONS_JSONL,
+          "--config", ROOT / "configs/reviewed.yaml", "--out", REVIEWED_DATA)
+if FINETUNE_ENABLED:
+    if not (REVIEWED_DATA / "manifest.json").is_file():
+        raise FileNotFoundError("Cần artifact reviewed_sft: tối thiểu 200 train, 80 dev, 80 holdout đã duyệt.")
     fine_config = yaml.safe_load((ROOT / "configs/finetune.yaml").read_text(encoding="utf-8"))
     fine_config["generation_config"] = str(BASELINE_GEN_CONFIG.resolve())
-    # Khởi đầu thận trọng với nhãn tổng hợp; so sánh với baseline trên holdout.
-    fine_config["num_train_epochs"] = 1
-    fine_config["learning_rate"] = 0.00005
-    fine_config_path = WORK / "configs/finetune_runtime.yaml"
+    fine_config_path = WORK / "configs/finetune_runtime_v2.yaml"
     fine_config_path.write_text(yaml.safe_dump(fine_config, sort_keys=False), encoding="utf-8")
-    args = ["finetune", "--train", TRAIN_JSONL, "--config", fine_config_path, "--out", FINETUNE_OUT]
-    if VALIDATION_JSONL is not None:
-        args += ["--validation", VALIDATION_JSONL]
-    stage(*args)
+    stage("finetune", "--dataset", REVIEWED_DATA, "--config", fine_config_path, "--out", FINETUNE_OUT)
     print((FINETUNE_OUT / "report.json").read_text(encoding="utf-8"))
+    print("Train xong chỉ tạo candidates. Duyệt dev_generations/base và từng checkpoint trước khi chọn.")
 else:
     print("Fine-tune disabled: using baseline.")
 '''
 
-FINETUNED_GENERATION = '''# Chọn model cho generation. Để None nếu dùng Qwen gốc.
-# Sau khi chạy section 3b, đường dẫn mặc định trỏ tới artifact vừa tạo.
-FINETUNED_ARTIFACT = globals().get("FINETUNE_OUT") if globals().get("FINETUNE_ENABLED", False) else None
+REVIEW_CONTEXT = '''# Tùy chọn: ghép context từ đúng retriever/packer dùng khi inference, TRƯỚC khi duyệt.
+ATTACH_DRAFT_CONTEXT = False
+DRAFT_RETRIEVAL = WORK / "artifacts/draft_retrieval_v2"
+CONTEXT_DRAFTS = WORK / "artifacts/context_drafts_v2"
+if ATTACH_DRAFT_CONTEXT:
+    stage("retrieve", "--index", INDEX, "--queries", SFT_DRAFTS / "questions.json",
+          "--config", ROOT / "configs/retrieve.yaml", "--out", DRAFT_RETRIEVAL)
+    stage("attach-review-context", "--drafts", SFT_DRAFTS / "drafts.jsonl",
+          "--retrieval", DRAFT_RETRIEVAL, "--config", BASELINE_GEN_CONFIG, "--out", CONTEXT_DRAFTS)
+    print("Copy drafts.jsonl ra ngoài artifact, duyệt claims/sources/split, rồi quay lại PREPARE_REVIEWED:", CONTEXT_DRAFTS)
+'''
+
+MODEL_EVALUATION = '''# Chạy nhiều lần qua các giai đoạn review. Không dùng test queries làm nhãn.
+# Điền đường dẫn bản review do người đọc sách chấm, KHÔNG sửa file trong artifact.
+CANDIDATE_CHECKPOINT = None  # Ví dụ "epoch-001"; chọn theo dev, không theo train loss.
+DEV_BASE_REVIEW = None
+DEV_CANDIDATE_REVIEW = None
+RUN_HOLDOUT = False  # Chỉ bật một lần sau khi khóa checkpoint theo dev.
+HOLDOUT_BASE_REVIEW = None
+HOLDOUT_CANDIDATE_REVIEW = None
+MERGE_SELECTED = False
+EVAL_WORK = WORK / "evaluation_v2"
+MERGED_OUT = WORK / "artifacts/qwen15b_selected_v2"
+if CANDIDATE_CHECKPOINT is not None:
+    EVAL_WORK = EVAL_WORK / CANDIDATE_CHECKPOINT
+    EVAL_WORK.mkdir(parents=True, exist_ok=True)
+    dev_base = FINETUNE_OUT / "dev_generations/base"
+    dev_candidate = FINETUNE_OUT / "dev_generations" / CANDIDATE_CHECKPOINT
+    for name, predictions, reviews in (("dev_base", dev_base, DEV_BASE_REVIEW),
+                                       ("dev_candidate", dev_candidate, DEV_CANDIDATE_REVIEW)):
+        if reviews is not None:
+            stage("score-eval", "--predictions", predictions, "--reviews", reviews,
+                  "--config", ROOT / "configs/evaluation.yaml", "--out", EVAL_WORK / name)
+    if RUN_HOLDOUT:
+        for name, extra in (("holdout_base", []), ("holdout_candidate", ["--training", FINETUNE_OUT,
+                                                                               "--checkpoint", CANDIDATE_CHECKPOINT])):
+            stage("evaluate", "--dataset", REVIEWED_DATA, "--split", "holdout",
+                  "--config", BASELINE_GEN_CONFIG, "--out", EVAL_WORK / (name + "_predictions"), *extra)
+        for name, reviews in (("holdout_base", HOLDOUT_BASE_REVIEW), ("holdout_candidate", HOLDOUT_CANDIDATE_REVIEW)):
+            if reviews is not None:
+                stage("score-eval", "--predictions", EVAL_WORK / (name + "_predictions"), "--reviews", reviews,
+                      "--config", ROOT / "configs/evaluation.yaml", "--out", EVAL_WORK / name)
+    if DEV_BASE_REVIEW is not None and DEV_CANDIDATE_REVIEW is not None:
+        confirm = HOLDOUT_BASE_REVIEW is not None and HOLDOUT_CANDIDATE_REVIEW is not None
+        SELECTION = EVAL_WORK / ("selection_confirmed" if confirm else "selection_dev_only")
+        args = ["select-model", "--baseline", EVAL_WORK / "dev_base", "--candidate", EVAL_WORK / "dev_candidate",
+                "--config", ROOT / "configs/evaluation.yaml", "--out", SELECTION]
+        if confirm:
+            args += ["--holdout-baseline", EVAL_WORK / "holdout_base", "--holdout-candidate", EVAL_WORK / "holdout_candidate"]
+        stage(*args)
+        print((SELECTION / "report.json").read_text(encoding="utf-8"))
+        if MERGE_SELECTED:
+            stage("merge-model", "--training", FINETUNE_OUT, "--checkpoint", CANDIDATE_CHECKPOINT,
+                  "--selection", SELECTION, "--config", ROOT / "configs/evaluation.yaml", "--out", MERGED_OUT)
+else:
+    print("Chưa chọn checkpoint; vẫn dùng baseline. Xem docs/FINETUNING.md để duyệt và chấm proxy.")
+'''
+
+FINETUNED_GENERATION = '''# Chỉ trỏ tới output merge-model đã qua dev + holdout; không tự chọn sau train.
+FINETUNED_ARTIFACT = None
 if FINETUNED_ARTIFACT is not None:
-    import json
-    model_artifact = Path(FINETUNED_ARTIFACT).resolve()
-    fine_manifest = json.loads((model_artifact / "manifest.json").read_text(encoding="utf-8"))
-    if not fine_manifest.get("complete") or fine_manifest.get("stage") != "finetune":
-        raise ValueError("Fine-tune chưa hoàn tất; chưa thể chạy generation.")
-    selected_config = yaml.safe_load((model_artifact / "generate.yaml").read_text(encoding="utf-8"))
-    # Cập nhật đường dẫn nếu artifact được chuyển từ session khác sang Kaggle Input.
-    selected_config["model_name"] = str(model_artifact / "model")
-    selected_config["finetune_artifact"] = str(model_artifact)
-    for key, name in (("system_prompt_file", "system.txt"), ("user_prompt_file", "user.txt")):
-        selected_config[key] = str(model_artifact / name)
+    sys.path.insert(0, str(ROOT))
+    from casml_b0.finetuning import selected_generation_config
+    fine_manifest, selected_config = selected_generation_config(FINETUNED_ARTIFACT)
     model_tag = fine_manifest["artifact_id"][:12]
-    print("Using fine-tuned model:", selected_config["model_name"])
-    print("Fine-tune artifact ID:", fine_manifest["artifact_id"])
     GEN_CONFIG = WORK / "configs" / f"generate_finetuned_{model_tag}.yaml"
     GEN_CONFIG.write_text(yaml.safe_dump(selected_config, sort_keys=False), encoding="utf-8")
     RUN = WORK / "runs" / f"{RUN_NAME}_ft_{model_tag}"
     OUTPUT = WORK / "outputs" / f"{RUN_NAME}_ft_{model_tag}"
+    print("Using selected, merge-verified model:", selected_config["model_name"])
 else:
     GEN_CONFIG = BASELINE_GEN_CONFIG
     RUN = WORK / "runs" / RUN_NAME
@@ -419,7 +458,7 @@ def save(name, cells):
 
 def main():
     intro = ('# CASML Hybrid R1 — end-to-end PDF → CSV\n\n'
-             'Notebook duy nhất cho toàn bộ 50 câu: BGE-small + BM25 + reciprocal-rank fusion + '
+             'Notebook phát triển cho toàn bộ câu hỏi: BGE-small + BM25 + reciprocal-rank fusion + '
              'cross-encoder reranking + Qwen2.5-1.5B-Instruct. Các stage vẫn nằm ở cell/section riêng '
              'để có thể chỉnh cấu hình và chạy lại từ đúng điểm cần thiết.\n\n'
              'Bật Internet để clone GitHub và tải model lần đầu; bật GPU nếu có. Sửa đường dẫn dữ liệu '
@@ -454,15 +493,34 @@ def main():
         title = (f"## {number}. {heading}\n\n{note}\n\n"
                  'Đầu ra có manifest và checksum; cấu hình mới nên dùng thư mục output mới để tránh cache cũ.')
         if number == 4:
-            full += [md("## 3b. Fine-tune Qwen 1.5B bằng LoRA (tùy chọn)\n\n"
-                        "Không cần JSONL sẵn: tạo Q&A tổng hợp từ sách; xem `docs/FINETUNING.md`. "
-                        "Mặc định bật. Chia train/validation theo trang nguồn; không dùng câu test làm nhãn train."), code(FINETUNING)]
+            full += [md("## 3b. Fine-tune v2: dữ liệu đã duyệt, mặc định tắt\n\n"
+                        "Đọc docs/FINETUNING.md. Bật BUILD_DRAFTS để tạo bản nháp; ghép context ở 3c, "
+                        "duyệt rồi quay lại PREPARE_REVIEWED. FINETUNE_ENABLED chỉ dùng artifact đã duyệt. "
+                        "LoRA r8, LR 1e-5, 1 epoch. Train không tự đổi model inference."), code(FINETUNING),
+                     md("## 3c. Context cho bản nháp trước khi duyệt\n\n"
+                        "Chạy một lần sau BUILD_DRAFTS. Kiểm tra nhóm nguồn, facts thiếu và số trang; "
+                        "không tự xem nhãn tổng hợp là gold."), code(REVIEW_CONTEXT),
+                     md("## 3d. Đánh giá và chọn checkpoint\n\n"
+                        "Chấm từng claim độc lập trên dev; khóa checkpoint rồi mới mở holdout. "
+                        "S_proxy = 0.2 CP + 0.2 AF + 0.4 AC + 0.2 RA là proxy nội bộ, không phải scorer Kaggle. "
+                        "Loss giảm không đủ để chọn model. Review JSONL theo docs/FINETUNING.md."), code(MODEL_EVALUATION)]
         full += [md(title)]
         if number == 4:
             full += [code(FINETUNED_GENERATION)]
         full += [code(command)]
     save("CASML_R1_end_to_end.ipynb", full)
-    print("Created 1 notebook: notebooks/CASML_R1_end_to_end.ipynb")
+    try:
+        from .offline_notebook import SETUP as offline_setup, RUN as offline_run
+    except ImportError:
+        from offline_notebook import SETUP as offline_setup, RUN as offline_run
+    save("CASML_R1_inference_offline.ipynb", [
+        md("# CASML v2 — inference offline\n\n"
+           "Bật GPU, tắt Internet. Gắn code v2, model snapshot/selected artifact, retrieval cache đầy đủ "
+           "và queries.json. Nếu cần cài dependencies, chuẩn bị wheelhouse đúng Python/CUDA từ trước. "
+           "Notebook không tạo nhãn hoặc train; không tự nộp. Baseline là mặc định. "
+           "Cache retrieval phải khớp chính xác ID/question. Kiểm tra audit trước khi nộp."),
+        code(offline_setup), code(offline_run)])
+    print("Created development and offline inference notebooks")
 
 
 if __name__ == "__main__":

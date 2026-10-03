@@ -1,6 +1,6 @@
 # CASML B0 — từ sách PDF đến CSV, từng bước độc lập
 
-Pipeline R1 có thể chạy từ đầu, dùng **BGE-small-en-v1.5 + BM25 → reciprocal-rank fusion → cross-encoder reranking → Qwen2.5-1.5B-Instruct**. BM25 và dense được hợp nhất theo thứ hạng, không cộng trực tiếp hai loại điểm khác thang đo. Sau generation, validator kiểm tra số, năm và tên riêng có xuất hiện trong evidence hay không; câu vi phạm được sửa một lần với bản nháp cũ, rồi dùng fallback bảo thủ loại câu/ngoặc chứa token không có nguồn. Chỉ trường hợp không thể tạo câu trả lời còn nội dung mới bị chặn export.
+Pipeline R1 có thể chạy từ đầu, dùng **BGE-small-en-v1.5 + BM25 → reciprocal-rank fusion → cross-encoder reranking → Qwen2.5-1.5B-Instruct**. BM25 và dense được hợp nhất theo thứ hạng, không cộng trực tiếp hai loại điểm khác thang đo. Mặc định grounding chỉ báo cáo dấu hiệu thiếu nguồn; không tự sửa hoặc xóa câu trả lời. Kiểm tra schema, ID, checksum và đáp án bị cắt vẫn chặn export khi không đạt.
 
 **Generation chỉ đọc cache retrieval chứa sẵn câu hỏi, đoạn văn và nguồn.** Đổi prompt, LLM, cách đóng gói context hoặc độ dài đáp án không cần sách PDF, index FAISS hay model embedding trong phiên generation. Có một kiểm tra tự động xóa corpus/index và chặn import retrieval để xác nhận ranh giới này.
 
@@ -8,16 +8,17 @@ Pipeline R1 có thể chạy từ đầu, dùng **BGE-small-en-v1.5 + BM25 → r
 
 ## Bắt đầu ở đâu?
 
-**Fine-tune Qwen 1.5B từ sách:** section **3b** mặc định bật. Khi chưa có JSONL,
-notebook tự tạo Q&A tổng hợp từ corpus, lọc đáp án trích nguyên văn, tách validation
-theo trang rồi train LoRA; section 4 dùng model đã train. Không dùng câu test để
-sinh nhãn. Đặt `FINETUNE_ENABLED = False` để chạy baseline. Xem
-[hướng dẫn và lệnh CLI](docs/FINETUNING.md), `configs/synthetic.yaml` và
-`configs/finetune.yaml`. Dữ liệu tổng hợp không phải ground truth chính thức.
+**Fine-tune Qwen 1.5B v2:** section **3b–3d** tách tạo bản nháp, duyệt dữ liệu,
+train LoRA và chọn checkpoint. Mặc định `FINETUNE_ENABLED=False`, inference dùng baseline.
+QA tự sinh chỉ là draft; cần dữ liệu approved với source facts và train/dev/holdout không trùng nhóm.
+Chỉ dùng model đã vượt đánh giá dev/holdout và kiểm tra merge/tải lại. Không chọn bằng train loss.
+Xem [hướng dẫn và lệnh CLI v2](docs/FINETUNING.md). `S_proxy` theo bốn thành phần là
+proxy nội bộ, không phải scorer private của Kaggle.
 
 | Nhu cầu | Điểm bắt đầu |
 |---|---|
 | Chạy toàn bộ trên Kaggle/local Jupyter | `notebooks/CASML_R1_end_to_end.ipynb` |
+| Inference Internet OFF với model và cache local | `notebooks/CASML_R1_inference_offline.ipynb` |
 | Chạy B0 thật trên PDF mẫu bằng một lệnh | `python scripts/run_b0_example.py` (sau khi cài `requirements.txt`) |
 | Chỉ sửa generation trên cache đã có | Chạy lại section 4–5 trong cùng notebook |
 | Chỉ đổi quy ước references/CSV | Chạy lại section 5 trong cùng notebook |
@@ -170,4 +171,4 @@ PDF/queries mẫu đã có trong `examples/`. `scripts/make_demo.py` có thể t
 - Artifact có chữ ký cấu hình, mã liên quan và input; file output có SHA256. Cache bị sửa tay sẽ bị từ chối. Đây là kiểm tra tính toàn vẹn cục bộ, không phải chữ ký xác thực bên thứ ba.
 - Prepare/index/retrieve/export chưa resume từng phần; nếu bị ngắt giữa bước, dùng thư mục output mới hoặc xóa đúng thư mục chưa hoàn tất sau khi kiểm tra. Generation có resume theo câu.
 - PDF scan cần OCR trước; baseline này chưa có OCR. Sách nhiều cột/bảng có thể cần cải thiện text extraction. Kiểm tra `empty_pages`, vài trang mẫu và các câu cần bảng trước khi benchmark.
-- Có nguồn để mở lại không đảm bảo từng ý của đáp án đều được nguồn hỗ trợ. B0 chưa có verifier, bộ nhãn đánh giá retrieval hoặc metric CASML cục bộ. Xem hướng kiểm tra độc lập trong `docs/EXPERIMENTS.md`.
+- Có nguồn để mở lại không đảm bảo từng ý của đáp án đều được nguồn hỗ trợ. V2 đã có workflow gán nhãn/chấm proxy bằng review tay, nhưng chưa kèm bộ gold đã duyệt hoặc scorer CASML chính thức. Xem `docs/FINETUNING.md` và `docs/EXPERIMENTS.md`.

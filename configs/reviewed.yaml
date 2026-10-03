@@ -1,0 +1,3 @@
+min_train_examples: 200
+min_dev_examples: 80
+min_holdout_examples: 80

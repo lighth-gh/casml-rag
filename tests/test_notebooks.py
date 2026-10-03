@@ -9,11 +9,56 @@ import yaml
 
 from casml_b0.generation import load_prompts
 from scripts.build_notebooks import GENERATION_SETUP, STEPS, paths
+from scripts import build_notebooks
+from scripts.offline_notebook import SETUP as OFFLINE_SETUP, RUN as OFFLINE_RUN
+from casml_b0.artifacts import SCHEMA, begin, finish, signature, write_json, write_jsonl
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class NotebookInputDiscovery(unittest.TestCase):
+    def test_notebooks_match_builder_and_all_cells_compile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(build_notebooks, "ROOT", Path(directory)):
+                build_notebooks.main()
+            for path in (ROOT / "notebooks").glob("*.ipynb"):
+                generated = Path(directory) / "notebooks" / path.name
+                self.assertEqual(path.read_bytes(), generated.read_bytes())
+                notebook = json.loads(path.read_text(encoding="utf-8"))
+                for cell in notebook["cells"]:
+                    if cell["cell_type"] == "code":
+                        compile("".join(cell["source"]), path.name + ":" + cell["id"], "exec")
+
+    def test_offline_setup_checks_cache_without_network_or_training(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            retrieval = folder / "retrieval"
+            manifest, _ = begin(retrieval, signature("retrieval", {}, {}, []))
+            write_jsonl(retrieval / "retrieval.jsonl", [{"schema": SCHEMA, "query_id": "1",
+                                                       "question": "Question?", "candidates": []}])
+            finish(retrieval, manifest, ["retrieval.jsonl"])
+            write_json(folder / "queries.json", [{"query_id": "1", "question": "Question?"}])
+            (folder / "model").mkdir()
+            write_json(folder / "model/config.json", {})
+            source = OFFLINE_SETUP
+            replacements = {"ROOT": ROOT, "RETRIEVAL": retrieval, "QUERIES": folder / "queries.json",
+                            "BASE_MODEL": folder / "model", "WORK": folder / "work"}
+            import re
+            for name, path in replacements.items():
+                source = re.sub(rf"^{name} = Path\(.*\)$", lambda m: f"{name} = Path({str(path)!r})", source, flags=re.M)
+            with patch("subprocess.run") as process, patch.dict("os.environ", {}, clear=False):
+                namespace = {}
+                exec(source, namespace)
+                process.assert_not_called()
+                config = yaml.safe_load(namespace["GEN_CONFIG"].read_text(encoding="utf-8"))
+                self.assertTrue(config["local_files_only"])
+                self.assertEqual(config["model_name"], str(folder / "model"))
+                write_json(folder / "queries.json", [{"query_id": "1", "question": "Changed question?"}])
+                with self.assertRaisesRegex(ValueError, "ALL query IDs/questions"):
+                    exec(source, {})
+            self.assertNotIn('stage("finetune"', OFFLINE_RUN)
+            self.assertIn('"--no-index"', OFFLINE_SETUP)
+
     def run_paths(self, data, experiment="baseline", **options):
         source = "".join(paths(**options)["source"])
         source = source.replace("INPUT_ROOT_OVERRIDE = None", f"INPUT_ROOT_OVERRIDE = {str(data)!r}")
@@ -92,9 +137,9 @@ class NotebookInputDiscovery(unittest.TestCase):
         self.assertEqual(export_config["page_value_type"], "integer")
         self.assertNotIn("require_sample", export_config)
 
-    def test_repository_contains_one_end_to_end_notebook(self):
+    def test_repository_has_development_and_offline_inference_notebooks(self):
         notebooks = sorted(path.name for path in (ROOT / "notebooks").glob("*.ipynb"))
-        self.assertEqual(notebooks, ["CASML_R1_end_to_end.ipynb"])
+        self.assertEqual(notebooks, ["CASML_R1_end_to_end.ipynb", "CASML_R1_inference_offline.ipynb"])
 
     def test_runtime_config_reports_grounding_and_uses_new_run(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,10 +1,11 @@
 generation_config: generate.yaml
 seed: 42
-validation_fraction: 0.1
-max_candidates: 600
-max_examples: 200
+dev_fraction: 0.2
+holdout_fraction: 0.2
+max_candidates: 2400
+max_examples: 1200
 min_examples: 20
 min_chunk_words: 80
 min_answer_words: 12
 max_answer_words: 100
-max_new_tokens: 384
+max_new_tokens: 768

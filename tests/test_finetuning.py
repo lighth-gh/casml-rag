@@ -1,5 +1,6 @@
 import json
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +9,7 @@ from unittest.mock import Mock, patch
 import yaml
 
 from casml_b0.cli import main
+from casml_b0.artifacts import begin, finish, signature, write_json
 from casml_b0.finetuning import AnswerCollator, read_examples, split_examples, tokenize_example
 from scripts.build_notebooks import FINETUNED_GENERATION, FINETUNING
 
@@ -87,8 +89,7 @@ class FineTuningTests(unittest.TestCase):
     def test_notebook_can_explicitly_disable_training(self):
         stage = Mock()
         with patch("builtins.print"):
-            exec(FINETUNING.replace("FINETUNE_ENABLED = True", "FINETUNE_ENABLED = False"),
-                 {"WORK": ROOT, "stage": stage})
+            exec(FINETUNING, {"WORK": ROOT, "stage": stage})
         stage.assert_not_called()
 
     def test_notebook_selects_moved_model_then_restores_baseline(self):
@@ -97,18 +98,22 @@ class FineTuningTests(unittest.TestCase):
             artifact = work / "moved-model"
             artifact.mkdir()
             (work / "configs").mkdir()
-            (artifact / "manifest.json").write_text(json.dumps({
-                "complete": True, "stage": "finetune", "artifact_id": "123456789012abcdef"}))
+            manifest, _ = begin(artifact, signature("finetune", {}, {}, []))
             (artifact / "generate.yaml").write_text(yaml.safe_dump({
                 "model_name": "/old/model", "system_prompt_file": "system.txt", "user_prompt_file": "user.txt"}))
-            namespace = {"WORK": work, "Path": Path, "yaml": yaml,
+            write_json(artifact / "report.json", {"workflow": "selected-v2", "merge_verified": True, "reload_verified": True,
+                       "selection_status": "selected", "training_id": "train", "checkpoint": "epoch-001"})
+            write_json(artifact / "selection.json", {"status": "selected", "model": {
+                       "kind": "adapter", "training_id": "train", "checkpoint": "epoch-001"}})
+            finish(artifact, manifest, ["generate.yaml", "report.json", "selection.json"])
+            namespace = {"WORK": work, "Path": Path, "yaml": yaml, "sys": sys, "ROOT": ROOT,
                          "FINETUNE_ENABLED": True, "FINETUNE_OUT": artifact,
                          "RUN_NAME": "baseline", "BASELINE_GEN_CONFIG": work / "base.yaml"}
-            exec(FINETUNED_GENERATION, namespace)
+            exec(FINETUNED_GENERATION.replace("FINETUNED_ARTIFACT = None", f"FINETUNED_ARTIFACT = {str(artifact)!r}"), namespace)
             config = yaml.safe_load(namespace["GEN_CONFIG"].read_text())
             self.assertEqual(config["model_name"], str(artifact.resolve() / "model"))
             self.assertEqual(config["system_prompt_file"], str(artifact.resolve() / "system.txt"))
-            self.assertIn("ft_123456789012", namespace["RUN"].name)
+            self.assertIn("ft_" + manifest["artifact_id"][:12], namespace["RUN"].name)
             namespace["FINETUNE_ENABLED"] = False
             exec(FINETUNED_GENERATION, namespace)
             self.assertEqual(namespace["GEN_CONFIG"], work / "base.yaml")
