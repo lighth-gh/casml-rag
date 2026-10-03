@@ -89,14 +89,52 @@ class FineTuningTests(unittest.TestCase):
     def test_notebook_can_explicitly_disable_training(self):
         stage = Mock()
         with patch("builtins.print"):
-            exec(FINETUNING, {"WORK": ROOT, "stage": stage})
+            exec(FINETUNING.replace("FINETUNE_ENABLED = True", "FINETUNE_ENABLED = False"),
+                 {"WORK": ROOT, "stage": stage})
         stage.assert_not_called()
 
-    def test_notebook_selects_moved_model_then_restores_baseline(self):
+    def test_default_training_requires_reviewed_data_before_installing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Mock()
+            with patch("subprocess.run") as process:
+                with self.assertRaisesRegex(FileNotFoundError, "ANNOTATIONS_JSONL"):
+                    exec(FINETUNING, {"WORK": Path(directory), "stage": stage})
+            process.assert_not_called()
+            stage.assert_not_called()
+
+    def test_default_training_routes_reviewed_dataset_and_runtime_config(self):
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
-            artifact = work / "moved-model"
-            artifact.mkdir()
+            data = work / "artifacts/book_reviewed_v2"
+            data.mkdir(parents=True)
+            write_json(data / "manifest.json", {})
+            out = work / "artifacts/qwen15b_lora_candidates_v2"
+            out.mkdir(parents=True)
+            write_json(out / "report.json", {})
+            (work / "configs").mkdir()
+            stage = Mock()
+            namespace = {"WORK": work, "ROOT": ROOT, "stage": stage, "yaml": yaml,
+                         "sys": sys, "subprocess": __import__("subprocess"),
+                         "BASELINE_GEN_CONFIG": work / "configs/generate.yaml"}
+            with patch("subprocess.run"), patch("builtins.print"):
+                exec(FINETUNING, namespace)
+            stage.assert_called_once_with("finetune", "--dataset", data, "--config",
+                                          work / "configs/finetune_runtime_v2.yaml", "--out", out)
+            config = yaml.safe_load((work / "configs/finetune_runtime_v2.yaml").read_text())
+            self.assertEqual(config["generation_config"], str(namespace["BASELINE_GEN_CONFIG"].resolve()))
+
+    def test_finetuned_inference_does_not_fall_back_when_model_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            namespace = {"WORK": Path(directory), "Path": Path, "FINETUNE_ENABLED": True}
+            with self.assertRaisesRegex(FileNotFoundError, "MERGE_SELECTED=True"):
+                exec(FINETUNED_GENERATION, namespace)
+            self.assertNotIn("GEN_CONFIG", namespace)
+
+    def test_notebook_selects_default_merged_model_then_restores_baseline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            artifact = work / "artifacts/qwen15b_selected_v2"
+            artifact.mkdir(parents=True)
             (work / "configs").mkdir()
             manifest, _ = begin(artifact, signature("finetune", {}, {}, []))
             (artifact / "generate.yaml").write_text(yaml.safe_dump({
@@ -109,7 +147,7 @@ class FineTuningTests(unittest.TestCase):
             namespace = {"WORK": work, "Path": Path, "yaml": yaml, "sys": sys, "ROOT": ROOT,
                          "FINETUNE_ENABLED": True, "FINETUNE_OUT": artifact,
                          "RUN_NAME": "baseline", "BASELINE_GEN_CONFIG": work / "base.yaml"}
-            exec(FINETUNED_GENERATION.replace("FINETUNED_ARTIFACT = None", f"FINETUNED_ARTIFACT = {str(artifact)!r}"), namespace)
+            exec(FINETUNED_GENERATION, namespace)
             config = yaml.safe_load(namespace["GEN_CONFIG"].read_text())
             self.assertEqual(config["model_name"], str(artifact.resolve() / "model"))
             self.assertEqual(config["system_prompt_file"], str(artifact.resolve() / "system.txt"))

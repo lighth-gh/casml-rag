@@ -9,7 +9,10 @@ Pipeline R1 có thể chạy từ đầu, dùng **BGE-small-en-v1.5 + BM25 → r
 ## Bắt đầu ở đâu?
 
 **Fine-tune Qwen 1.5B v2:** section **3b–3d** tách tạo bản nháp, duyệt dữ liệu,
-train LoRA và chọn checkpoint. Mặc định `FINETUNE_ENABLED=False`, inference dùng baseline.
+train LoRA và chọn checkpoint. Notebook phát triển mặc định `FINETUNE_ENABLED=True`;
+inference dùng artifact `artifacts/qwen15b_selected_v2` sau đánh giá và merge.
+Thiếu dữ liệu đã duyệt hoặc model đã chọn thì dừng với hướng dẫn; đặt `FINETUNE_ENABLED=False`
+để chỉ tạo bản nháp hoặc chạy baseline.
 QA tự sinh chỉ là draft; cần dữ liệu approved với source facts và train/dev/holdout không trùng nhóm.
 Chỉ dùng model đã vượt đánh giá dev/holdout và kiểm tra merge/tải lại. Không chọn bằng train loss.
 Xem [hướng dẫn và lệnh CLI v2](docs/FINETUNING.md). `S_proxy` theo bốn thành phần là

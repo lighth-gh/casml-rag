@@ -1,14 +1,16 @@
 ﻿# Fine-tune Qwen2.5-1.5B-Instruct — workflow v2
 
-Cập nhật 03/10/2026. Notebook mặc định dùng baseline: `FINETUNE_ENABLED = False`,
-`FINETUNED_ARTIFACT = None`. Train xong chỉ tạo **candidates**; không tự thay model submission.
+Cập nhật 03/10/2026. Notebook phát triển mặc định bật `FINETUNE_ENABLED = True`.
+Section 4 mặc định dùng `WORK / "artifacts/qwen15b_selected_v2"` khi fine-tuning bật.
+Thiếu dữ liệu đã duyệt hoặc model đã chọn thì notebook dừng với hướng dẫn, không tự chạy baseline.
+Train xong chỉ tạo **candidates**; cần hoàn tất đánh giá và merge ở 3d trước inference.
 Dữ liệu và điểm dưới đây là bộ đánh giá nội bộ, không phải gold/scorer chính thức của Kaggle.
 
 ## Trình tự trong notebook
 
 Dùng `notebooks/CASML_R1_end_to_end.ipynb` để phát triển. Section 3b có ba công tắc độc lập:
 
-1. `BUILD_DRAFTS=True`: tạo câu hỏi, đáp án diễn đạt lại và trích đoạn hỗ trợ từ sách.
+1. Đặt `FINETUNE_ENABLED=False`, `BUILD_DRAFTS=True`: tạo câu hỏi, đáp án diễn đạt lại và trích đoạn hỗ trợ từ sách.
 2. Section 3c, `ATTACH_DRAFT_CONTEXT=True`: retrieve các câu hỏi vừa tạo rồi đóng gói
    context bằng đúng `pack_context` của inference. **Không dùng queries của cuộc thi.**
 3. Copy `context_drafts_v2/drafts.jsonl` ra file annotation riêng, đọc sách và duyệt theo schema dưới đây.
@@ -16,8 +18,9 @@ Dùng `notebooks/CASML_R1_end_to_end.ipynb` để phát triển. Section 3b có 
 4. Khi đủ dữ liệu đã duyệt, bật `FINETUNE_ENABLED=True`. Giữ `BUILD_DRAFTS=False` khi train.
 5. Section 3d: chấm baseline và từng checkpoint trên dev, chọn checkpoint bằng proxy;
    khóa lựa chọn rồi mới bật `RUN_HOLDOUT`. Chấm holdout một lần, chạy selection và merge.
-6. Section 4: chỉ đặt `FINETUNED_ARTIFACT` tới output `merge-model` đã qua gate.
-   Khi chưa có model đạt gate, để `None` và chạy baseline.
+6. Section 4: tự dùng output `merge-model` ở `artifacts/qwen15b_selected_v2` đã qua gate.
+   Nếu model nằm nơi khác, đặt `FINETUNED_ARTIFACT` tới artifact đó. Muốn chạy baseline,
+   đặt `FINETUNE_ENABLED=False` ở 3b và chạy lại cell chọn model ở section 4.
 
 Notebook `notebooks/CASML_R1_inference_offline.ipynb` dành riêng cho inference Internet OFF.
 Nó cần code v2, local model/tokenizer, retrieval cache và queries làm Input. Nếu thiếu dependencies,

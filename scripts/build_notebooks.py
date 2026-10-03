@@ -286,14 +286,22 @@ print("Export config:", EXPORT_CONFIG)
 print("Run:", RUN)
 '''
 
-FINETUNING = '''# V2: các bước độc lập, mặc định chạy baseline.
+FINETUNING = '''# V2: fine-tune mặc định bật; cần artifact dữ liệu đã duyệt.
 BUILD_DRAFTS = False
 PREPARE_REVIEWED = False
-FINETUNE_ENABLED = False
+FINETUNE_ENABLED = True  # Đặt False nếu chỉ tạo bản nháp hoặc muốn chạy baseline.
 ANNOTATIONS_JSONL = None  # Bản sao JSONL do người đọc sách duyệt; xem docs/FINETUNING.md.
 SFT_DRAFTS = WORK / "artifacts/book_drafts_v2"
 REVIEWED_DATA = WORK / "artifacts/book_reviewed_v2"
 FINETUNE_OUT = WORK / "artifacts/qwen15b_lora_candidates_v2"
+
+if FINETUNE_ENABLED and not PREPARE_REVIEWED and not (REVIEWED_DATA / "manifest.json").is_file():
+    raise FileNotFoundError(
+        f"Fine-tune đang bật nhưng chưa có dữ liệu đã duyệt tại {REVIEWED_DATA}. "
+        "Đặt ANNOTATIONS_JSONL và PREPARE_REVIEWED=True để tạo artifact reviewed_sft "
+        "(tối thiểu 200 train, 80 dev, 80 holdout đã duyệt). "
+        "Nếu chỉ tạo bản nháp ở 3b–3c hoặc muốn chạy baseline, đặt FINETUNE_ENABLED=False."
+    )
 
 if BUILD_DRAFTS or FINETUNE_ENABLED:
     subprocess.run([sys.executable, "-m", "pip", "install", "-r",
@@ -379,12 +387,19 @@ if CANDIDATE_CHECKPOINT is not None:
             stage("merge-model", "--training", FINETUNE_OUT, "--checkpoint", CANDIDATE_CHECKPOINT,
                   "--selection", SELECTION, "--config", ROOT / "configs/evaluation.yaml", "--out", MERGED_OUT)
 else:
-    print("Chưa chọn checkpoint; vẫn dùng baseline. Xem docs/FINETUNING.md để duyệt và chấm proxy.")
+    print("Chưa chọn checkpoint. Hoàn tất review dev/holdout và merge ở 3d trước khi inference fine-tuned.")
 '''
 
 FINETUNED_GENERATION = '''# Chỉ trỏ tới output merge-model đã qua dev + holdout; không tự chọn sau train.
-FINETUNED_ARTIFACT = None
+FINETUNED_ARTIFACT = WORK / "artifacts/qwen15b_selected_v2" if FINETUNE_ENABLED else None
 if FINETUNED_ARTIFACT is not None:
+    if not (Path(FINETUNED_ARTIFACT) / "manifest.json").is_file():
+        raise FileNotFoundError(
+            f"Chưa có model fine-tuned đã chọn tại {FINETUNED_ARTIFACT}. "
+            "Hoàn tất đánh giá dev/holdout và MERGE_SELECTED=True ở section 3d, "
+            "hoặc đặt FINETUNED_ARTIFACT tới artifact merge-model đã hoàn tất. "
+            "Để chạy baseline, đặt FINETUNE_ENABLED=False ở 3b rồi chạy lại cell chọn model."
+        )
     sys.path.insert(0, str(ROOT))
     from casml_b0.finetuning import selected_generation_config
     fine_manifest, selected_config = selected_generation_config(FINETUNED_ARTIFACT)
@@ -493,10 +508,12 @@ def main():
         title = (f"## {number}. {heading}\n\n{note}\n\n"
                  'Đầu ra có manifest và checksum; cấu hình mới nên dùng thư mục output mới để tránh cache cũ.')
         if number == 4:
-            full += [md("## 3b. Fine-tune v2: dữ liệu đã duyệt, mặc định tắt\n\n"
+            full += [md("## 3b. Fine-tune v2: dữ liệu đã duyệt, mặc định bật\n\n"
                         "Đọc docs/FINETUNING.md. Bật BUILD_DRAFTS để tạo bản nháp; ghép context ở 3c, "
                         "duyệt rồi quay lại PREPARE_REVIEWED. FINETUNE_ENABLED chỉ dùng artifact đã duyệt. "
-                        "LoRA r8, LR 1e-5, 1 epoch. Train không tự đổi model inference."), code(FINETUNING),
+                        "LoRA r8, LR 1e-5, 1 epoch. Section 4 mặc định dùng model đã chọn và merge ở 3d; "
+                        "thiếu dữ liệu/model thì dừng. Đặt FINETUNE_ENABLED=False khi chỉ tạo bản nháp "
+                        "hoặc muốn chạy baseline."), code(FINETUNING),
                      md("## 3c. Context cho bản nháp trước khi duyệt\n\n"
                         "Chạy một lần sau BUILD_DRAFTS. Kiểm tra nhóm nguồn, facts thiếu và số trang; "
                         "không tự xem nhãn tổng hợp là gold."), code(REVIEW_CONTEXT),
